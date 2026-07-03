@@ -77,6 +77,14 @@ function loadState() {
       status: statusMap[spark.status] || spark.status,
       tags: Array.isArray(spark.tags) ? spark.tags : []
     }));
+    Object.values(parsed.threads).forEach((thread) => {
+      if (!Array.isArray(thread.thinkingPath) || thread.thinkingPath.some((item) => item.startsWith("这个 Spark 真正想澄清"))) {
+        thread.thinkingPath = defaultThinkingPath();
+      }
+      if (!Array.isArray(thread.messages)) {
+        thread.messages = [];
+      }
+    });
     return parsed;
   } catch {
     return defaultState();
@@ -141,8 +149,9 @@ function renderLanding() {
   return `
     <main class="container landing">
       <section class="hero-copy">
-        <h1>把灵感变成可用洞见。</h1>
-        <p>ValueSpark 是一个私人 AI 思考工作台，帮你捕捉想法，并把它整理成清晰判断。</p>
+        <p class="eyebrow">PRIVATE THINKING PARTNER</p>
+        <h1>把灵感慢慢推成判断。</h1>
+        <p>ValueSpark 是一个私人 AI 思考工作台，帮你保存未完成的想法，并把它们推进成可回顾、可行动的洞见。</p>
         <div class="hero-actions">
           <button class="button primary" data-start>开始使用</button>
           <button class="button" data-route="#/library">进入灵感库</button>
@@ -165,11 +174,12 @@ function renderLanding() {
               .join("")}
           </div>
           <div class="preview-thread">
-            <p class="preview-title">思考路径</p>
+            <p class="preview-title">Thread Workspace</p>
             ${[
-              "这个灵感里真正值得拆解的张力是什么？",
-              "哪一个关键假设需要最先验证？",
-              "什么样的洞见明天依然有用？"
+              "Original Spark: 先保留想法最原始的温度。",
+              "Core Question: 找出它真正想回答的问题。",
+              "Key Assumptions: 标出需要验证的关键假设。",
+              "Emerging Insight: 生成一段未来还能继续使用的判断。"
             ]
               .map((line) => `<div class="path-line">${line}</div>`)
               .join("")}
@@ -248,7 +258,7 @@ function renderSparkCard(spark) {
         </div>
       </div>
       <div class="card-actions">
-        <button class="button primary" data-open-thread="${spark.id}">打开线程</button>
+        <button class="button primary" data-open-thread="${spark.id}">进入 Thread</button>
         <button class="button danger icon" title="删除" data-delete-spark="${spark.id}">×</button>
       </div>
     </article>
@@ -282,11 +292,13 @@ function renderThread(id) {
       <section class="thread-layout">
         <div class="thread-stack">
           <section class="thread-section">
+            <p class="section-label">Original Spark</p>
             <h2>原始 Spark</h2>
             <div class="original-text">${escapeHtml(spark.content)}</div>
           </section>
 
           <section class="thread-section">
+            <p class="section-label">Thinking Path</p>
             <h2>思考路径</h2>
             <ul class="thinking-list">
               ${thread.thinkingPath.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
@@ -294,6 +306,7 @@ function renderThread(id) {
           </section>
 
           <section class="thread-section">
+            <p class="section-label">Structured Insight</p>
             <h2>洞见</h2>
             ${
               thread.insight
@@ -309,6 +322,7 @@ function renderThread(id) {
         </div>
 
         <section class="thread-section">
+          <p class="section-label">Conversation</p>
           <h2>对话</h2>
           <div class="dialogue" data-dialogue>
             ${thread.messages.map(renderMessage).join("")}
@@ -335,27 +349,32 @@ function renderMessage(message) {
 }
 
 function renderInsight(insight) {
+  const normalized = normalizeInsight(insight);
   return `
     <div class="insight-grid">
-      <div class="insight-item">
-        <h3>核心问题</h3>
-        <p>${escapeHtml(insight.coreQuestion)}</p>
+      <div class="insight-item emphasis">
+        <h3>Core Question / 核心问题</h3>
+        <p>${escapeHtml(normalized.coreQuestion)}</p>
       </div>
       <div class="insight-item">
-        <h3>这个 Spark 真正在讨论什么</h3>
-        <p>${escapeHtml(insight.about)}</p>
+        <h3>Key Assumptions / 关键假设</h3>
+        <ul>${normalized.keyAssumptions.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
       </div>
       <div class="insight-item">
-        <h3>关键判断</h3>
-        <ul>${insight.judgements.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+        <h3>Challenges / 挑战</h3>
+        <ul>${normalized.challenges.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
       </div>
       <div class="insight-item">
-        <h3>下一步行动</h3>
-        <ul>${insight.nextActions.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+        <h3>Emerging Insight / 正在浮现的洞见</h3>
+        <p>${escapeHtml(normalized.emergingInsight)}</p>
       </div>
       <div class="insight-item">
-        <h3>最终总结</h3>
-        <p>${escapeHtml(insight.finalSummary)}</p>
+        <h3>Next Actions / 下一步行动</h3>
+        <ul>${normalized.nextActions.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+      </div>
+      <div class="insight-item final">
+        <h3>Final Note / 最终总结</h3>
+        <p>${escapeHtml(normalized.finalSummary)}</p>
       </div>
     </div>
   `;
@@ -596,7 +615,7 @@ async function copySummary(sparkId) {
   const thread = state.threads[spark.threadId];
   if (!thread.insight) return;
 
-  const summary = thread.insight.finalSummary;
+  const summary = normalizeInsight(thread.insight).finalSummary;
   try {
     await navigator.clipboard.writeText(summary);
     showToast("总结已复制。");
@@ -625,23 +644,27 @@ function createThreadFromSpark(spark) {
   return {
     id: spark.threadId,
     sparkId: spark.id,
-    thinkingPath: [
-      "这个 Spark 真正想澄清的问题是什么？",
-      "谁会在什么场景下需要这个想法？",
-      "它和显而易见的版本有什么差异？",
-      "继续投入前，最需要验证的假设是什么？",
-      "一个有用的下一步应该长什么样？"
-    ],
+    thinkingPath: defaultThinkingPath(),
     messages: [
       {
         role: "ai",
         content:
-          "这个 Spark 值得放慢来看。我会先把表层想法和它背后更深的问题分开，然后判断哪些部分需要澄清、验证，或变成具体下一步。",
+          "这个 Spark 值得放慢来看。我会先保护它的原始直觉，再把它拆成核心问题、关键假设和可能挑战，最后帮助你形成一段可以继续推进的洞见。",
         createdAt: new Date().toISOString()
       }
     ],
     insight: null
   };
+}
+
+function defaultThinkingPath() {
+  return [
+    "Original Spark: 保留这个想法最原始、最没有被整理过的部分。",
+    "Core Question: 找到它真正想澄清的那个问题。",
+    "Key Assumptions: 标出让这个想法成立的关键前提。",
+    "Challenges: 主动看见它最容易变弱的位置。",
+    "Emerging Insight: 把当前材料压缩成一个可以继续使用的判断。"
+  ];
 }
 
 function mockAiResponse(spark, content, thread) {
@@ -691,27 +714,38 @@ function makeInsight(spark, thread) {
   const userMessages = thread.messages.filter((message) => message.role === "user").map((message) => message.content);
   const combined = [spark.content, ...userMessages].join(" ");
   const corePhrase = spark.title.replace(/[?.!]+$/, "");
+  const hasProductSignal = /产品|product|用户|user/i.test(combined);
+  const hasAiSignal = /ai|人工智能|模型/i.test(combined);
 
   return {
     coreQuestion: `${corePhrase}?`,
-    about:
-      "这个 Spark 的核心，是把一个未完成的想法推进成更清晰的判断。关键工作是找出隐藏假设、用户场景，以及最小可行动作。",
-    judgements: [
-      "这个 Spark 的价值来自真实的思考缺口，核心关注点是思考质量。",
-      "第一版应该通过问题、路径和总结，让用户看见自己的思考进展。",
-      "当它聚焦一个具体用户场景时，想法会更容易变强。"
+    keyAssumptions: [
+      hasProductSignal
+        ? "这个想法对应一个真实、可重复出现的用户场景。"
+        : "这个想法背后存在一个真实、可反复讨论的思考缺口。",
+      hasAiSignal
+        ? "AI 的价值来自帮助用户澄清问题和结构，而非只给出更快答案。"
+        : "只要结构足够清晰，未完成的想法也能持续积累价值。",
+      "用户愿意为了更清楚的判断，花一点时间补充背景和反复追问。"
     ],
+    challenges: [
+      "如果问题过于宽泛，Thread 会停留在温和总结，难以形成锋利判断。",
+      "如果缺少具体场景，洞见会显得正确但不可行动。",
+      "如果下一步行动过大，用户很难从一次思考进入真实推进。"
+    ],
+    emergingInsight:
+      "这个 Spark 的潜力在于把模糊直觉变成可继续工作的结构。当前最重要的动作，是把问题收窄到一个真实场景，并识别最需要验证的假设。",
     nextActions: [
-      "用一句话写清楚具体用户场景。",
-      "列出让这个想法值得继续推进的关键假设。",
-      "把下一轮思考变成一个小型验证问题。"
+      "用一句话写清楚这个想法发生在哪个具体场景。",
+      "列出一个让它成立的关键假设，以及一个会削弱它的反例。",
+      "把下一轮思考变成一个可以在十分钟内完成的小型验证问题。"
     ],
-    finalSummary: `${makeSummary(combined)} 最清晰的下一步，是定义用户场景，检验核心假设，并把输出保持在未来可以回顾和继续推进的程度。`
+    finalSummary: `${makeSummary(combined)} 当前最清晰的推进方式，是先保护原始 Spark 的直觉，再围绕核心问题、关键假设和具体场景生成下一步判断。`
   };
 }
 
 function buildMarkdown(spark, thread) {
-  const insight = thread.insight || makeInsight(spark, thread);
+  const insight = normalizeInsight(thread.insight || makeInsight(spark, thread));
   return `# ValueSpark 思考线程
 
 ## 原始 Spark
@@ -728,26 +762,44 @@ ${thread.messages.map((message) => `### ${message.role === "ai" ? "ValueSpark" :
 
 ## 洞见
 
-### 核心问题
+### Core Question / 核心问题
 
 ${insight.coreQuestion}
 
-### 这个 Spark 真正在讨论什么
+### Key Assumptions / 关键假设
 
-${insight.about}
+${insight.keyAssumptions.map((item) => `- ${item}`).join("\n")}
 
-### 关键判断
+### Challenges / 挑战
 
-${insight.judgements.map((item) => `- ${item}`).join("\n")}
+${insight.challenges.map((item) => `- ${item}`).join("\n")}
 
-### 最终总结
+### Emerging Insight / 正在浮现的洞见
 
-${insight.finalSummary}
+${insight.emergingInsight}
 
-## 下一步行动
+### Next Actions / 下一步行动
 
 ${insight.nextActions.map((item) => `- ${item}`).join("\n")}
+
+### Final Note / 最终总结
+
+${insight.finalSummary}
 `;
+}
+
+function normalizeInsight(insight) {
+  return {
+    coreQuestion: insight.coreQuestion || "这个 Spark 真正想澄清的问题是什么？",
+    keyAssumptions: insight.keyAssumptions || insight.judgements || ["这个想法值得继续被澄清。"],
+    challenges: insight.challenges || ["需要把问题继续收窄到一个具体场景。"],
+    emergingInsight:
+      insight.emergingInsight ||
+      insight.about ||
+      "这个 Spark 的价值来自它背后的思考缺口。下一步需要把直觉转成更清晰的判断。",
+    nextActions: insight.nextActions || ["写清楚具体场景。", "列出关键假设。", "设计一个小验证。"],
+    finalSummary: insight.finalSummary || "这条 Thread 已经形成一段可以继续推进的初步洞见。"
+  };
 }
 
 function filteredSparks(search, filter) {
