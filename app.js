@@ -55,16 +55,23 @@ const defaultState = () => {
     sparks,
     threads,
     settings: {
-      apiKey: "",
-      mockMode: true
+      provider: "auto",
+      model: ""
     },
     onboardingComplete: false
   };
 };
 
 let state = loadState();
+let aiRuntime = {
+  mode: "checking",
+  provider: { id: "checking", label: "正在检测" },
+  model: "正在检测",
+  providers: []
+};
+let pendingAction = null;
 let toastTimer = null;
-let captureOpen = false;
+let captureOpen = true;
 let onboardingStep = 0;
 let onboardingDraft = "";
 
@@ -87,7 +94,19 @@ function loadState() {
       if (!Array.isArray(thread.messages)) {
         thread.messages = [];
       }
+      if (!Array.isArray(thread.suggestedQuestions)) {
+        thread.suggestedQuestions = [];
+      }
     });
+    // v1 原型曾把 Key 存在浏览器里。升级后立即清除这份敏感数据。
+    if (parsed.settings?.apiKey) {
+      delete parsed.settings.apiKey;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+    }
+    parsed.settings = {
+      provider: typeof parsed.settings?.provider === "string" ? parsed.settings.provider : "auto",
+      model: typeof parsed.settings?.model === "string" ? parsed.settings.model : ""
+    };
     return parsed;
   } catch {
     return defaultState();
@@ -114,7 +133,7 @@ function route() {
   if (path === "#/cases") return { name: "cases" };
   if (path === "#/about") return { name: "about" };
   if (path === "#/settings") return { name: "settings" };
-  return { name: "landing" };
+  return { name: "library" };
 }
 
 function render() {
@@ -124,7 +143,6 @@ function render() {
   app.innerHTML = `
     <div class="app-shell">
       ${current.name === "thread" ? "" : renderTopbar(current.name)}
-      ${current.name === "landing" ? renderLanding() : ""}
       ${current.name === "library" ? renderLibrary() : ""}
       ${current.name === "thread" ? renderThread(current.id) : ""}
       ${current.name === "space" ? renderLibrary() : ""}
@@ -142,25 +160,21 @@ function render() {
 
 function renderTopbar(active) {
   const links = [
-    ["landing", "#/", "首页"],
     ["library", "#/library", "图书馆"],
-    ["space", "#/space", "思考空间"],
-    ["approach", "#/approach", "思考方式"],
-    ["cases", "#/cases", "案例"],
-    ["about", "#/about", "关于"]
+    ["settings", "#/settings", "AI 设置"]
   ];
 
   return `
     <header class="topbar">
-      <button class="brand button" data-route="#/">
-        <span class="brand-mark">✧</span>
-        <span>ValueSpark</span>
+      <button class="brand button" data-route="#/library" aria-label="返回 ValueSpark 图书馆">
+        <img class="brand-logo" src="./assets/logo/value-spark-logo.png" alt="" />
+        <span class="brand-name">ValueSpark</span>
       </button>
       <nav class="nav" aria-label="主导航">
         ${links
           .map(([key, path, label]) => `<button class="${active === key ? "active" : ""}" data-route="${path}">${label}</button>`)
           .join("")}
-        <button class="nav-cta" data-route="#/library">开始思考</button>
+        <button class="nav-cta" data-new-spark>新建火花</button>
       </nav>
     </header>
   `;
@@ -170,7 +184,7 @@ function renderLanding() {
   return `
     <main>
       <section class="home-hero">
-        <div class="home-mark">✧</div>
+        <img class="home-logo" src="./assets/logo/value-spark-logo.png" alt="ValueSpark" />
         <p class="eyebrow">PRIVATE THINKING PARTNER</p>
         <h1>把模糊想法，推成清晰洞见。</h1>
         <p>ValueSpark 陪你把想法慢慢拆开、审视、挑战，再沉淀成可以继续使用的判断。</p>
@@ -237,9 +251,20 @@ function renderLibrary() {
 
   return `
     <main class="container library-page">
+      <section class="library-intro">
+        <img class="library-brand-symbol" src="./assets/logo/value-spark-logo.png" alt="" />
+        <div>
+          <p class="section-kicker">你的私人思考搭档</p>
+          <h1>今天，想把什么想清楚？</h1>
+          <p>先保留原始想法，再进入一段有结构的深度对话。</p>
+        </div>
+      </section>
+
+      ${captureOpen ? renderCapturePanel() : ""}
+
       <header class="library-header">
         <div>
-          <h1>我的图书馆</h1>
+          <h2>最近的火花</h2>
           <p>共 ${state.sparks.length} 条记录 · ${insightCount} 个已生成洞见</p>
         </div>
         <div class="library-tools">
@@ -252,11 +277,9 @@ function renderLibrary() {
               .map((item) => `<option ${item === filter ? "selected" : ""}>${item}</option>`)
               .join("")}
           </select>
-          <button class="button primary capture-button" data-focus-create>${captureOpen ? "收起捕捉" : "+ 捕捉新灵感"}</button>
+          <button class="button capture-button" data-focus-create>${captureOpen ? "收起输入" : "新建火花"}</button>
         </div>
       </header>
-
-      ${captureOpen ? renderCapturePanel() : ""}
 
       ${
         sparks.length
@@ -271,18 +294,21 @@ function renderCapturePanel() {
   return `
     <section class="create-panel" aria-label="创建 Spark">
       <div class="field">
-        <label for="spark-title">标题</label>
-        <input id="spark-title" data-create-title placeholder="例如：如何把一个模糊的创业想法结构化？" />
+        <label for="spark-title">给这个想法一个名字</label>
+        <input id="spark-title" data-create-title placeholder="例如：我的新产品应该从哪里开始？" />
       </div>
       <div class="field field-wide">
-        <label for="spark-content">原始内容</label>
-        <textarea id="spark-content" data-create-content placeholder="随便写一个最近在想的事。它会先进入图书馆，之后可以慢慢展开。"></textarea>
+        <label for="spark-content">原始火花</label>
+        <textarea id="spark-content" data-create-content placeholder="把脑子里还没成形的想法写下来。这里允许模糊、犹豫和不完整。"></textarea>
       </div>
       <div class="field">
-        <label for="spark-tags">标签</label>
-        <input id="spark-tags" data-create-tags placeholder="产品, 写作, 创业" />
+        <label for="spark-tags">标签（可选）</label>
+        <input id="spark-tags" data-create-tags placeholder="产品, 写作" />
       </div>
-      <button class="button primary" data-create-spark>保存到图书馆</button>
+      <div class="capture-submit">
+        <span>随时记录，不用完美</span>
+        <button class="button primary" data-create-spark>存为火花</button>
+      </div>
     </section>
   `;
 }
@@ -290,7 +316,7 @@ function renderCapturePanel() {
 function renderLibraryEmptyCard() {
   return `
     <article class="spark-card empty-card" data-focus-create>
-      <div class="empty-star">✧</div>
+      <img class="empty-logo" src="./assets/logo/value-spark-logo.png" alt="" />
       <p>继续捕捉灵感<br />它们会出现在这里</p>
     </article>
   `;
@@ -332,6 +358,8 @@ function renderThread(id) {
   }
 
   const thread = state.threads[spark.threadId] || createThreadFromSpark(spark);
+  const isSending = pendingAction === `chat:${spark.id}`;
+  const isGenerating = pendingAction === `insight:${spark.id}`;
   state.threads[spark.threadId] = thread;
   saveState();
 
@@ -340,16 +368,16 @@ function renderThread(id) {
       <header class="thread-topline">
         <div class="thread-title-row">
           <button class="brand button" data-route="#/library">
-            <span class="brand-mark">✧</span>
-            <span>ValueSpark</span>
+            <img class="brand-logo" src="./assets/logo/value-spark-logo.png" alt="" />
+            <span class="brand-name">ValueSpark</span>
           </button>
           <span class="dot-separator">·</span>
           <h1>${escapeHtml(spark.title)}</h1>
           <span class="status">${escapeHtml(spark.status)}</span>
         </div>
         <div class="thread-settings">
-          <span>模型：<strong>Mock AI</strong></span>
-          <span>深度：<strong>高</strong></span>
+          <span class="runtime-pill">${runtimeModeLabel()}</span>
+          <span>${escapeHtml(currentProviderLabel())} · ${escapeHtml(currentModelLabel())}</span>
           <button class="button" data-route="#/settings">设置</button>
         </div>
       </header>
@@ -362,11 +390,23 @@ function renderThread(id) {
           </div>
           <div class="thread-input-shell">
             <form class="dialogue-form" data-message-form="${spark.id}">
-              <textarea data-message-input placeholder="继续输入你的想法..."></textarea>
+              <textarea data-message-input placeholder="继续输入你的想法..." ${isSending ? "disabled" : ""}></textarea>
+              ${
+                thread.suggestedQuestions.length
+                  ? `<div class="suggested-questions">
+                      ${thread.suggestedQuestions
+                        .map(
+                          (question) =>
+                            `<button class="question-chip" type="button" data-message-preset="${spark.id}" data-preset-text="${escapeAttr(question)}" ${isSending ? "disabled" : ""}>${escapeHtml(question)}</button>`
+                        )
+                        .join("")}
+                    </div>`
+                  : ""
+              }
               <div class="thread-input-actions">
-                <button class="button" type="button" data-message-preset="${spark.id}" data-preset-text="请继续加深这个思考，帮我看到更底层的问题。">加深思考</button>
-                <button class="button" type="button" data-message-preset="${spark.id}" data-preset-text="请挑战这个想法里的关键假设，指出可能被忽略的盲区。">挑战假设</button>
-                <button class="button primary" type="submit">发送</button>
+                <button class="button" type="button" data-message-preset="${spark.id}" data-preset-text="请继续加深这个思考，帮我看到更底层的问题。" ${isSending ? "disabled" : ""}>加深思考</button>
+                <button class="button" type="button" data-message-preset="${spark.id}" data-preset-text="请挑战这个想法里的关键假设，指出可能被忽略的盲区。" ${isSending ? "disabled" : ""}>挑战假设</button>
+                <button class="button primary" type="submit" ${isSending ? "disabled" : ""}>${isSending ? "思考中…" : "发送"}</button>
               </div>
             </form>
             <p>当前深度：高（会更严格地挑战你的想法）</p>
@@ -376,16 +416,17 @@ function renderThread(id) {
         <aside class="reasoning-panel">
           <div class="reasoning-header">
             <div>
-              <p class="section-kicker">可见推理过程</p>
-              <h2>当前思考结构</h2>
+              <p class="section-kicker">LOGIC CHAIN</p>
+              <h2>思考路径</h2>
             </div>
             <button class="button" data-export-markdown="${spark.id}">导出</button>
           </div>
           <div class="reasoning-cards">
             ${renderReasoningCards(spark, thread)}
+            ${thread.insight ? renderInsight(thread.insight) : ""}
           </div>
           <div class="reasoning-actions">
-            <button class="button primary" data-generate-insight="${spark.id}">生成洞见</button>
+            <button class="button primary" data-generate-insight="${spark.id}" ${isGenerating ? "disabled" : ""}>${isGenerating ? "生成中…" : "生成洞见"}</button>
             <button class="button" data-copy-summary="${spark.id}" ${thread.insight ? "" : "disabled"}>复制总结</button>
           </div>
           <div class="reasoning-footer">
@@ -399,10 +440,11 @@ function renderThread(id) {
 
 function renderReasoningCards(spark, thread) {
   const insight = normalizeInsight(thread.insight || makeInsight(spark, thread));
+  const structure = thread.structure || {};
   const cards = [
-    ["Observation", "", "很多想法真正需要的，是把原始直觉从混乱里单独拿出来。"],
-    ["Assumption", "挑战", insight.keyAssumptions[0]],
-    ["Insight", "", insight.emergingInsight]
+    ["Observation", "", structure.observation || "很多想法真正需要的，是把原始直觉从混乱里单独拿出来。"],
+    ["Assumption", "挑战", structure.keyAssumption || insight.keyAssumptions[0]],
+    ["Insight", "", structure.emergingInsight || insight.emergingInsight]
   ];
 
   return cards
@@ -461,37 +503,60 @@ function renderInsight(insight) {
 }
 
 function renderSettings() {
+  const selectedProviderId = state.settings.provider || "auto";
+  const selectedProvider = getSelectedProvider();
+  const models = selectedProvider?.models || [];
   return `
     <main class="container page">
       <header class="page-header">
         <div>
           <h1>设置</h1>
-          <p>在接入真实 AI 前，Mock AI 会让第一版产品保持完整可用。</p>
+          <p>选择你想使用的 AI 供应商和模型。密钥始终由服务端环境变量管理。</p>
         </div>
       </header>
 
       <section class="settings-panel">
-        <div class="field">
-          <label for="api-key">API Key</label>
-          <input id="api-key" data-api-key value="${escapeAttr(state.settings.apiKey)}" placeholder="未来可以把 API Key 放在这里" />
-          <p class="muted small">API Key 会保存在当前浏览器里，仅用于原型测试。</p>
+        <div class="model-picker-grid">
+          <div class="field">
+            <label for="ai-provider">AI 供应商</label>
+            <select id="ai-provider" data-ai-provider>
+              <option value="auto" ${selectedProviderId === "auto" ? "selected" : ""}>自动选择已配置服务</option>
+              ${aiRuntime.providers
+                .map(
+                  (provider) =>
+                    `<option value="${escapeAttr(provider.id)}" ${selectedProviderId === provider.id ? "selected" : ""}>${escapeHtml(provider.label)} · ${provider.configured ? "已配置" : "演示"}</option>`
+                )
+                .join("")}
+            </select>
+          </div>
+          <div class="field">
+            <label for="ai-model">模型</label>
+            <select id="ai-model" data-ai-model ${models.length ? "" : "disabled"}>
+              ${models
+                .map(
+                  (model) =>
+                    `<option value="${escapeAttr(model.id)}" ${state.settings.model === model.id ? "selected" : ""}>${escapeHtml(model.label)}</option>`
+                )
+                .join("")}
+            </select>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div>
+            <strong>当前运行模式</strong>
+            <div class="muted small">${providerConfigurationHint(selectedProvider)}</div>
+          </div>
+          <span class="status">${runtimeModeLabel()}</span>
+        </div>
+        <div class="settings-row">
+          <div>
+            <strong>当前服务</strong>
+            <div class="muted small">对话、追问、思考路径和洞见会使用同一个模型。</div>
+          </div>
+          <span class="status">${escapeHtml(currentProviderLabel())} · ${escapeHtml(currentModelLabel())}</span>
         </div>
         <div class="section-actions">
-          <button class="button primary" data-save-settings>保存</button>
-        </div>
-        <div class="settings-row">
-          <div>
-            <strong>Mock AI 模式</strong>
-            <div class="muted small">思考伙伴现在使用本地原型回复。</div>
-          </div>
-          <span class="status">已开启</span>
-        </div>
-        <div class="settings-row">
-          <div>
-            <strong>Key 本地保存状态</strong>
-            <div class="muted small">只在当前浏览器配置里可见。</div>
-          </div>
-          <span class="status">${state.settings.apiKey ? "已保存" : "未填写"}</span>
+          <button class="button primary" data-refresh-ai-status>重新检测</button>
         </div>
       </section>
     </main>
@@ -620,7 +685,7 @@ function renderOnboarding() {
   const steps = [
     `
       <div class="onboarding-center">
-        <div class="home-mark">✧</div>
+        <img class="home-logo" src="./assets/logo/value-spark-logo.png" alt="ValueSpark" />
         <h2>欢迎来到 ValueSpark</h2>
         <p>这里是一个陪你把想法慢慢想清楚的伙伴。</p>
       </div>
@@ -654,7 +719,7 @@ function renderOnboarding() {
     `,
     `
       <div class="onboarding-center">
-        <div class="home-mark">✧</div>
+        <img class="home-logo" src="./assets/logo/value-spark-logo.png" alt="ValueSpark" />
         <h2>欢迎来到 ValueSpark</h2>
         <p>你的第一个想法已经准备好进入图书馆。现在，去真正开始一次深度思考吧。</p>
       </div>
@@ -694,12 +759,26 @@ function bindActions() {
     start.addEventListener("click", () => navigate("#/library"));
   }
 
-  const focusCreate = document.querySelector("[data-focus-create]");
-  if (focusCreate) {
+  document.querySelectorAll("[data-focus-create]").forEach((focusCreate) => {
     focusCreate.addEventListener("click", () => {
       captureOpen = !captureOpen;
       render();
-      document.querySelector("[data-create-title]")?.focus();
+      if (captureOpen) {
+        document.querySelector("[data-create-content]")?.focus();
+      }
+    });
+  });
+
+  const newSpark = document.querySelector("[data-new-spark]");
+  if (newSpark) {
+    newSpark.addEventListener("click", () => {
+      captureOpen = true;
+      if (route().name !== "library") {
+        navigate("#/library");
+        return;
+      }
+      render();
+      document.querySelector("[data-create-content]")?.focus();
     });
   }
 
@@ -727,23 +806,23 @@ function bindActions() {
   });
 
   document.querySelectorAll("[data-message-form]").forEach((form) => {
-    form.addEventListener("submit", (event) => {
+    form.addEventListener("submit", async (event) => {
       event.preventDefault();
-      sendMessage(form.dataset.messageForm);
+      await sendMessage(form.dataset.messageForm);
     });
   });
 
   document.querySelectorAll("[data-message-preset]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       const input = document.querySelector("[data-message-input]");
       if (!input) return;
       input.value = button.dataset.presetText;
-      sendMessage(button.dataset.messagePreset);
+      await sendMessage(button.dataset.messagePreset);
     });
   });
 
   document.querySelectorAll("[data-generate-insight]").forEach((button) => {
-    button.addEventListener("click", () => generateInsight(button.dataset.generateInsight));
+    button.addEventListener("click", async () => generateInsight(button.dataset.generateInsight));
   });
 
   document.querySelectorAll("[data-copy-summary]").forEach((button) => {
@@ -754,13 +833,34 @@ function bindActions() {
     button.addEventListener("click", () => exportMarkdown(button.dataset.exportMarkdown));
   });
 
-  const saveSettings = document.querySelector("[data-save-settings]");
-  if (saveSettings) {
-    saveSettings.addEventListener("click", () => {
-      state.settings.apiKey = document.querySelector("[data-api-key]").value.trim();
-      saveState();
-      showToast("设置已保存到本地。");
+  const refreshAiStatus = document.querySelector("[data-refresh-ai-status]");
+  if (refreshAiStatus) {
+    refreshAiStatus.addEventListener("click", async () => {
+      aiRuntime = { mode: "checking", model: "正在检测" };
       render();
+      await loadAiStatus(true);
+    });
+  }
+
+  const aiProvider = document.querySelector("[data-ai-provider]");
+  if (aiProvider) {
+    aiProvider.addEventListener("change", () => {
+      state.settings.provider = aiProvider.value;
+      const provider = getSelectedProvider();
+      state.settings.model = provider?.models?.[0]?.id || "";
+      saveState();
+      render();
+      showToast("AI 供应商已切换。");
+    });
+  }
+
+  const aiModel = document.querySelector("[data-ai-model]");
+  if (aiModel) {
+    aiModel.addEventListener("change", () => {
+      state.settings.model = aiModel.value;
+      saveState();
+      render();
+      showToast("模型选择已保存。");
     });
   }
 
@@ -875,9 +975,9 @@ function deleteSpark(id) {
   render();
 }
 
-function sendMessage(sparkId) {
+async function sendMessage(sparkId) {
   const spark = state.sparks.find((item) => item.id === sparkId);
-  if (!spark) return;
+  if (!spark || pendingAction) return;
 
   const input = document.querySelector("[data-message-input]");
   const content = input.value.trim();
@@ -888,27 +988,108 @@ function sendMessage(sparkId) {
 
   const thread = state.threads[spark.threadId];
   thread.messages.push({ role: "user", content, createdAt: new Date().toISOString() });
-  thread.messages.push({ role: "ai", content: mockAiResponse(spark, content, thread), createdAt: new Date().toISOString() });
   spark.status = "思考中";
   spark.updatedAt = new Date().toISOString();
   state.threads[spark.threadId] = thread;
   saveState();
+  pendingAction = `chat:${spark.id}`;
   render();
-  const dialogue = document.querySelector("[data-dialogue]");
-  if (dialogue) dialogue.scrollTop = dialogue.scrollHeight;
+  let completionNotice = "";
+
+  try {
+    const result = await requestAi({
+      action: "chat",
+      spark: { title: spark.title, content: spark.content },
+      messages: thread.messages.slice(0, -1),
+      userMessage: content,
+      provider: state.settings.provider,
+      model: state.settings.model
+    });
+    thread.messages.push({ role: "ai", content: result.data.reply, createdAt: new Date().toISOString() });
+    thread.suggestedQuestions = result.data.followUpQuestions || [];
+    thread.structure = normalizeThinkingStructure(result.data.thinkingPath);
+    thread.thinkingPath = thinkingPathToList(thread.structure);
+    aiRuntime = {
+      ...aiRuntime,
+      mode: result.mode,
+      provider: result.provider,
+      model: result.model
+    };
+  } catch (error) {
+    const fallback = localChatFallback(spark, content);
+    thread.messages.push({ role: "ai", content: fallback.reply, createdAt: new Date().toISOString() });
+    thread.suggestedQuestions = fallback.followUpQuestions;
+    thread.structure = fallback.thinkingPath;
+    thread.thinkingPath = thinkingPathToList(thread.structure);
+    aiRuntime = {
+      ...aiRuntime,
+      mode: "mock",
+      provider: { id: "mock", label: "浏览器回退" },
+      model: "ValueSpark Mock"
+    };
+    completionNotice = error.message || "AI 服务暂时不可用，已切换演示回复。";
+  } finally {
+    pendingAction = null;
+    saveState();
+    render();
+    if (completionNotice) showToast(completionNotice);
+    const dialogue = document.querySelector("[data-dialogue]");
+    if (dialogue) dialogue.scrollTop = dialogue.scrollHeight;
+  }
 }
 
-function generateInsight(sparkId) {
+async function generateInsight(sparkId) {
   const spark = state.sparks.find((item) => item.id === sparkId);
-  if (!spark) return;
+  if (!spark || pendingAction) return;
 
   const thread = state.threads[spark.threadId];
-  thread.insight = makeInsight(spark, thread);
-  spark.status = "已生成洞见";
-  spark.updatedAt = new Date().toISOString();
-  saveState();
-  showToast("洞见已生成。");
+  pendingAction = `insight:${spark.id}`;
   render();
+  let completionNotice = "";
+
+  try {
+    const result = await requestAi({
+      action: "insight",
+      spark: { title: spark.title, content: spark.content },
+      messages: thread.messages,
+      provider: state.settings.provider,
+      model: state.settings.model
+    });
+    thread.insight = normalizeInsight(result.data);
+    thread.structure = {
+      observation: thread.structure?.observation || makeSummary(spark.content),
+      coreQuestion: thread.insight.coreQuestion,
+      keyAssumption: thread.insight.keyAssumptions[0],
+      challenge: thread.insight.challenges[0],
+      emergingInsight: thread.insight.emergingInsight
+    };
+    thread.thinkingPath = thinkingPathToList(thread.structure);
+    aiRuntime = {
+      ...aiRuntime,
+      mode: result.mode,
+      provider: result.provider,
+      model: result.model
+    };
+    spark.status = "已生成洞见";
+    spark.updatedAt = new Date().toISOString();
+    completionNotice = result.mode === "live" ? "真实 AI 洞见已生成。" : "演示洞见已生成。";
+  } catch (error) {
+    thread.insight = makeInsight(spark, thread);
+    spark.status = "已生成洞见";
+    spark.updatedAt = new Date().toISOString();
+    aiRuntime = {
+      ...aiRuntime,
+      mode: "mock",
+      provider: { id: "mock", label: "浏览器回退" },
+      model: "ValueSpark Mock"
+    };
+    completionNotice = error.message || "AI 服务暂时不可用，已生成演示洞见。";
+  } finally {
+    pendingAction = null;
+    saveState();
+    render();
+    showToast(completionNotice);
+  }
 }
 
 async function copySummary(sparkId) {
@@ -948,6 +1129,8 @@ function createThreadFromSpark(spark) {
     id: spark.threadId,
     sparkId: spark.id,
     thinkingPath: defaultThinkingPath(),
+    structure: null,
+    suggestedQuestions: [],
     messages: [
       {
         role: "ai",
@@ -1105,6 +1288,128 @@ function normalizeInsight(insight) {
   };
 }
 
+async function requestAi(payload) {
+  const response = await fetch("/api/ai", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.data) {
+    throw new Error(result.error || "AI 服务暂时不可用，已切换演示模式。");
+  }
+  return result;
+}
+
+async function loadAiStatus(showResult = false) {
+  let notice = "";
+  try {
+    const response = await fetch("/api/ai", { headers: { Accept: "application/json" } });
+    if (!response.ok) throw new Error("status unavailable");
+    const result = await response.json();
+    aiRuntime = {
+      mode: result.mode,
+      provider: result.provider,
+      model: result.model,
+      providers: result.providers || []
+    };
+    normalizeModelSelection();
+    if (showResult) notice = result.mode === "live" ? "真实 AI 已连接。" : "当前使用无密钥演示模式。";
+  } catch {
+    aiRuntime = {
+      mode: "mock",
+      provider: { id: "mock", label: "浏览器回退" },
+      model: "ValueSpark Mock",
+      providers: []
+    };
+    if (showResult) notice = "服务端代理未连接，当前使用浏览器演示回退。";
+  }
+  render();
+  if (notice) showToast(notice);
+}
+
+function runtimeModeLabel() {
+  if (aiRuntime.mode === "checking") return "检测中";
+  const provider = getSelectedProvider();
+  if (provider) return provider.configured ? "真实 AI" : "演示模式";
+  return aiRuntime.mode === "live" ? "真实 AI" : "演示模式";
+}
+
+function getSelectedProvider() {
+  if (!aiRuntime.providers.length) return null;
+  if (state.settings.provider === "auto") {
+    return aiRuntime.providers.find((provider) => provider.id === aiRuntime.provider?.id)
+      || aiRuntime.providers.find((provider) => provider.configured)
+      || aiRuntime.providers[0];
+  }
+  return aiRuntime.providers.find((provider) => provider.id === state.settings.provider)
+    || aiRuntime.providers[0];
+}
+
+function normalizeModelSelection() {
+  const provider = getSelectedProvider();
+  if (!provider) return;
+  if (!provider.models.some((model) => model.id === state.settings.model)) {
+    state.settings.model = provider.models[0]?.id || "";
+    saveState();
+  }
+}
+
+function currentProviderLabel() {
+  if (aiRuntime.mode === "checking") return "正在检测";
+  return getSelectedProvider()?.label || aiRuntime.provider?.label || "ValueSpark Mock";
+}
+
+function currentModelLabel() {
+  return state.settings.model || aiRuntime.model || "ValueSpark Mock";
+}
+
+function providerConfigurationHint(provider) {
+  if (!provider) return "服务端代理连接后会显示可用供应商。";
+  if (provider.configured) return `${provider.label} 已在服务端完成配置。`;
+  if (provider.id === "ollama") return "配置 OLLAMA_BASE_URL 后可连接本地 Ollama。";
+  return `${provider.label} 当前使用演示回复；在服务端配置对应 API Key 后自动启用。`;
+}
+
+function normalizeThinkingStructure(value) {
+  return {
+    observation: value?.observation || "当前材料提供了新的具体背景。",
+    coreQuestion: value?.coreQuestion || "这个 Spark 真正想澄清的问题是什么？",
+    keyAssumption: value?.keyAssumption || "这个想法背后存在一个值得验证的关键前提。",
+    challenge: value?.challenge || "需要继续把问题收窄到一个具体场景。",
+    emergingInsight: value?.emergingInsight || "清晰的场景和验证标准会帮助这条思考继续推进。"
+  };
+}
+
+function thinkingPathToList(value) {
+  const structure = normalizeThinkingStructure(value);
+  return [
+    `Observation: ${structure.observation}`,
+    `Core Question: ${structure.coreQuestion}`,
+    `Key Assumption: ${structure.keyAssumption}`,
+    `Challenge: ${structure.challenge}`,
+    `Emerging Insight: ${structure.emergingInsight}`
+  ];
+}
+
+function localChatFallback(spark, content) {
+  return {
+    reply: mockAiResponse(spark, content),
+    followUpQuestions: [
+      "这个想法最需要在哪个具体场景里成立？",
+      "当前判断依赖的关键假设是什么？",
+      "什么小证据能让你决定继续或调整方向？"
+    ],
+    thinkingPath: normalizeThinkingStructure({
+      observation: "新的补充让原始想法拥有了更多背景。",
+      coreQuestion: "在一个具体场景里，这个想法最需要解决什么问题？",
+      keyAssumption: "存在一个真实且重复出现的需求。",
+      challenge: "当前材料仍需要更具体的人物、时刻和结果。",
+      emergingInsight: "先验证一个关键场景，可以降低继续推进的模糊度。"
+    })
+  };
+}
+
 function filteredSparks(search, filter) {
   const query = search.trim().toLowerCase();
   return state.sparks.filter((spark) => {
@@ -1197,3 +1502,4 @@ if (!window.location.hash) {
 } else {
   render();
 }
+loadAiStatus();

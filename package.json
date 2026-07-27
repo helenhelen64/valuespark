@@ -2,9 +2,11 @@
   "name": "valuespark",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "build": "mkdir -p dist && cp index.html styles.css app.js dist/",
-    "dev": "python3 -m http.server 4173",
-    "start": "python3 -m http.server 4173"
+    "build": "mkdir -p dist/assets && cp index.html styles.css app.js dist/ && cp -R assets/logo dist/assets/",
+    "dev": "node --env-file-if-exists=.env.local server.mjs",
+    "start": "node --env-file-if-exists=.env.local server.mjs",
+    "test": "node --test"
   }
 }
