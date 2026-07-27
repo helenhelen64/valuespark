@@ -56,8 +56,9 @@ const defaultState = () => {
     sparks,
     threads,
     settings: {
-      provider: "auto",
-      model: ""
+      provider: "",
+      model: "",
+      flowVersion: 2
     },
     onboardingComplete: false
   };
@@ -105,9 +106,11 @@ function loadState() {
       delete parsed.settings.apiKey;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
     }
+    const needsProviderFlowReset = parsed.settings?.flowVersion !== 2;
     parsed.settings = {
-      provider: typeof parsed.settings?.provider === "string" ? parsed.settings.provider : "auto",
-      model: typeof parsed.settings?.model === "string" ? parsed.settings.model : ""
+      provider: needsProviderFlowReset ? "" : String(parsed.settings?.provider || ""),
+      model: needsProviderFlowReset ? "" : String(parsed.settings?.model || ""),
+      flowVersion: 2
     };
     return parsed;
   } catch {
@@ -505,17 +508,17 @@ function renderInsight(insight) {
 }
 
 function renderSettings() {
-  const selectedProviderId = state.settings.provider || "auto";
+  const selectedProviderId = state.settings.provider || "";
   const selectedProvider = getSelectedProvider();
   const models = selectedProvider?.models || [];
-  const supportsSessionKey = selectedProviderId !== "auto" && selectedProvider?.id !== "ollama";
+  const supportsSessionKey = Boolean(selectedProviderId) && selectedProvider?.id !== "ollama";
   const hasKey = supportsSessionKey && hasSessionApiKey(selectedProvider.id);
   return `
     <main class="container page">
       <header class="page-header">
         <div>
           <h1>设置</h1>
-          <p>选择 AI 供应商和模型。你可以使用站点服务，也可以在当前会话中填写自己的 API Key。</p>
+          <p>依次选择 AI 供应商、模型，并粘贴该供应商提供的 API Key。</p>
         </div>
       </header>
 
@@ -524,11 +527,11 @@ function renderSettings() {
           <div class="field">
             <label for="ai-provider">AI 供应商</label>
             <select id="ai-provider" data-ai-provider>
-              <option value="auto" ${selectedProviderId === "auto" ? "selected" : ""}>自动选择已配置服务</option>
+              <option value="" ${selectedProviderId ? "" : "selected"} disabled>请选择 AI 供应商</option>
               ${aiRuntime.providers
                 .map(
                   (provider) =>
-                    `<option value="${escapeAttr(provider.id)}" ${selectedProviderId === provider.id ? "selected" : ""}>${escapeHtml(provider.label)} · ${providerStatusLabel(provider)}</option>`
+                    `<option value="${escapeAttr(provider.id)}" ${selectedProviderId === provider.id ? "selected" : ""}>${escapeHtml(provider.label)}</option>`
                 )
                 .join("")}
             </select>
@@ -536,22 +539,26 @@ function renderSettings() {
           <div class="field">
             <label for="ai-model">模型</label>
             <select id="ai-model" data-ai-model ${models.length ? "" : "disabled"}>
-              ${models
-                .map(
-                  (model) =>
-                    `<option value="${escapeAttr(model.id)}" ${state.settings.model === model.id ? "selected" : ""}>${escapeHtml(model.label)}</option>`
-                )
-                .join("")}
+              ${
+                models.length
+                  ? models
+                      .map(
+                        (model) =>
+                          `<option value="${escapeAttr(model.id)}" ${state.settings.model === model.id ? "selected" : ""}>${escapeHtml(model.label)}</option>`
+                      )
+                      .join("")
+                  : `<option>请先选择供应商</option>`
+              }
             </select>
           </div>
         </div>
         <div class="api-key-panel">
           <div>
-            <strong>使用自己的 API Key</strong>
+            <strong>API Key</strong>
             <p>
               ${
-                selectedProviderId === "auto"
-                  ? "先选择一个具体的 AI 供应商，再填写对应密钥。"
+                !selectedProviderId
+                  ? "完成供应商选择后，在这里粘贴对应的 API Key。"
                   : selectedProvider?.id === "ollama"
                     ? "Ollama 通过服务端地址连接，本地地址需要由站点管理员配置。"
                     : `${escapeHtml(selectedProvider?.label || "该供应商")} 密钥只保留在当前浏览器会话，关闭标签页后由浏览器清除。`
@@ -569,30 +576,21 @@ function renderSettings() {
                     autocomplete="off"
                     spellcheck="false"
                   />
-                  <button class="button primary" data-save-api-key>保存并启用</button>
+                  <button class="button primary" data-save-api-key>保存并使用</button>
                   ${hasKey ? `<button class="button" data-clear-api-key>清除</button>` : ""}
                 </div>`
               : ""
           }
           <div class="api-key-privacy">密钥经 HTTPS 发送至 ValueSpark 服务端代理，只用于本次模型请求；服务器不保存、不返回、不写入日志。</div>
         </div>
-        <div class="settings-row">
-          <div>
-            <strong>当前运行模式</strong>
-            <div class="muted small">${providerConfigurationHint(selectedProvider)}</div>
-          </div>
-          <span class="status">${runtimeModeLabel()}</span>
-        </div>
-        <div class="settings-row">
-          <div>
-            <strong>当前服务</strong>
-            <div class="muted small">对话、追问、思考路径和洞见会使用同一个模型。</div>
-          </div>
-          <span class="status">${escapeHtml(currentProviderLabel())} · ${escapeHtml(currentModelLabel())}</span>
-        </div>
-        <div class="section-actions">
-          <button class="button primary" data-refresh-ai-status>重新检测</button>
-        </div>
+        ${
+          selectedProvider && (selectedProvider.configured || hasKey)
+            ? `<div class="connection-ready">
+                <span>已准备好</span>
+                <strong>${escapeHtml(selectedProvider.label)} · ${escapeHtml(currentModelLabel())}</strong>
+              </div>`
+            : ""
+        }
       </section>
     </main>
   `;
@@ -868,15 +866,6 @@ function bindActions() {
     button.addEventListener("click", () => exportMarkdown(button.dataset.exportMarkdown));
   });
 
-  const refreshAiStatus = document.querySelector("[data-refresh-ai-status]");
-  if (refreshAiStatus) {
-    refreshAiStatus.addEventListener("click", async () => {
-      aiRuntime = { mode: "checking", model: "正在检测" };
-      render();
-      await loadAiStatus(true);
-    });
-  }
-
   const aiProvider = document.querySelector("[data-ai-provider]");
   if (aiProvider) {
     aiProvider.addEventListener("change", () => {
@@ -911,7 +900,7 @@ function bindActions() {
       sessionKeys[provider.id] = apiKey;
       saveSessionKeys();
       render();
-      showToast(`${provider.label} 已切换为真实 AI，会在首次请求时验证密钥。`);
+      showToast(`${provider.label} API Key 已保存，可以开始使用。`);
     });
   }
 
@@ -1041,6 +1030,7 @@ function deleteSpark(id) {
 async function sendMessage(sparkId) {
   const spark = state.sparks.find((item) => item.id === sparkId);
   if (!spark || pendingAction) return;
+  if (!ensureAiReady()) return;
 
   const input = document.querySelector("[data-message-input]");
   const content = input.value.trim();
@@ -1079,18 +1069,11 @@ async function sendMessage(sparkId) {
       model: result.model
     };
   } catch (error) {
-    const fallback = localChatFallback(spark, content);
-    thread.messages.push({ role: "ai", content: fallback.reply, createdAt: new Date().toISOString() });
-    thread.suggestedQuestions = fallback.followUpQuestions;
-    thread.structure = fallback.thinkingPath;
-    thread.thinkingPath = thinkingPathToList(thread.structure);
     aiRuntime = {
       ...aiRuntime,
-      mode: "mock",
-      provider: { id: "mock", label: "浏览器回退" },
-      model: "ValueSpark Mock"
+      mode: "error"
     };
-    completionNotice = error.message || "AI 服务暂时不可用，已切换演示回复。";
+    completionNotice = error.message || "模型连接失败，请检查供应商、模型和 API Key。";
   } finally {
     pendingAction = null;
     saveState();
@@ -1104,6 +1087,7 @@ async function sendMessage(sparkId) {
 async function generateInsight(sparkId) {
   const spark = state.sparks.find((item) => item.id === sparkId);
   if (!spark || pendingAction) return;
+  if (!ensureAiReady()) return;
 
   const thread = state.threads[spark.threadId];
   pendingAction = `insight:${spark.id}`;
@@ -1135,18 +1119,13 @@ async function generateInsight(sparkId) {
     };
     spark.status = "已生成洞见";
     spark.updatedAt = new Date().toISOString();
-    completionNotice = result.mode === "live" ? "真实 AI 洞见已生成。" : "演示洞见已生成。";
+    completionNotice = "洞见已生成。";
   } catch (error) {
-    thread.insight = makeInsight(spark, thread);
-    spark.status = "已生成洞见";
-    spark.updatedAt = new Date().toISOString();
     aiRuntime = {
       ...aiRuntime,
-      mode: "mock",
-      provider: { id: "mock", label: "浏览器回退" },
-      model: "ValueSpark Mock"
+      mode: "error"
     };
-    completionNotice = error.message || "AI 服务暂时不可用，已生成演示洞见。";
+    completionNotice = error.message || "模型连接失败，请检查供应商、模型和 API Key。";
   } finally {
     pendingAction = null;
     saveState();
@@ -1214,49 +1193,6 @@ function defaultThinkingPath() {
     "Challenges: 主动看见它最容易变弱的位置。",
     "Emerging Insight: 把当前材料压缩成一个可以继续使用的判断。"
   ];
-}
-
-function mockAiResponse(spark, content, thread) {
-  const lower = `${spark.title} ${spark.content} ${content}`.toLowerCase();
-  const angle = lower.includes("user") || lower.includes("用户")
-    ? "用户需求"
-    : lower.includes("ai")
-      ? "思考质量"
-      : lower.includes("product") || lower.includes("产品")
-        ? "产品价值"
-        : "核心判断";
-
-  const prompts = {
-    "用户需求": [
-      "哪一个用户场景会产生最强需求？",
-      "如果这个东西不存在，用户具体会失去什么？",
-      "用户会用什么自己的话描述这个问题？"
-    ],
-    "思考质量": [
-      "速度在哪些地方有帮助，又在哪些地方削弱思考？",
-      "AI 在回答前应该先问什么？",
-      "这个想法的哪一部分更需要结构化处理？"
-    ],
-    "产品价值": [
-      "用户第一次使用时，必须发生什么才会觉得它有用？",
-      "这个产品应该让哪一种行为变得更容易？",
-      "用户使用十分钟后，应该看到什么可见进展？"
-    ],
-    "核心判断": [
-      "这个想法里最强的判断是什么？",
-      "什么情况会证明这个判断站不住？",
-      "什么证据会让你更有信心继续推进？"
-    ]
-  };
-
-  const selected = prompts[angle];
-  return `这里真正值得用力的点是：${angle}。我建议把下一步收窄，先回答三个问题：
-
-1. ${selected[0]}
-2. ${selected[1]}
-3. ${selected[2]}
-
-你刚补充的内容提供了有效背景。下一步可以先命名最关键的假设，再围绕它设计一个很小的验证动作。`;
 }
 
 function makeInsight(spark, thread) {
@@ -1360,7 +1296,7 @@ async function requestAi(payload) {
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok || !result.data) {
-    throw new Error(result.error || "AI 服务暂时不可用，已切换演示模式。");
+    throw new Error(result.error || "模型连接失败，请检查供应商、模型和 API Key。");
   }
   return result;
 }
@@ -1378,15 +1314,15 @@ async function loadAiStatus(showResult = false) {
       providers: result.providers || []
     };
     normalizeModelSelection();
-    if (showResult) notice = result.mode === "live" ? "真实 AI 已连接。" : "当前使用无密钥演示模式。";
+    if (showResult) notice = "供应商目录已更新。";
   } catch {
     aiRuntime = {
-      mode: "mock",
-      provider: { id: "mock", label: "浏览器回退" },
-      model: "ValueSpark Mock",
+      mode: "unavailable",
+      provider: { id: "", label: "尚未连接" },
+      model: "",
       providers: []
     };
-    if (showResult) notice = "服务端代理未连接，当前使用浏览器演示回退。";
+    if (showResult) notice = "服务端代理暂时无法连接。";
   }
   render();
   if (notice) showToast(notice);
@@ -1395,19 +1331,14 @@ async function loadAiStatus(showResult = false) {
 function runtimeModeLabel() {
   if (aiRuntime.mode === "checking") return "检测中";
   const provider = getSelectedProvider();
-  if (provider) return provider.configured || hasSessionApiKey(provider.id) ? "真实 AI" : "演示模式";
-  return aiRuntime.mode === "live" ? "真实 AI" : "演示模式";
+  if (provider) return provider.configured || hasSessionApiKey(provider.id) ? "已连接" : "待填写 Key";
+  return "待配置";
 }
 
 function getSelectedProvider() {
   if (!aiRuntime.providers.length) return null;
-  if (state.settings.provider === "auto") {
-    return aiRuntime.providers.find((provider) => provider.id === aiRuntime.provider?.id)
-      || aiRuntime.providers.find((provider) => provider.configured)
-      || aiRuntime.providers[0];
-  }
-  return aiRuntime.providers.find((provider) => provider.id === state.settings.provider)
-    || aiRuntime.providers[0];
+  if (!state.settings.provider || state.settings.provider === "auto") return null;
+  return aiRuntime.providers.find((provider) => provider.id === state.settings.provider) || null;
 }
 
 function normalizeModelSelection() {
@@ -1420,30 +1351,29 @@ function normalizeModelSelection() {
 }
 
 function currentProviderLabel() {
-  if (aiRuntime.mode === "checking") return "正在检测";
-  return getSelectedProvider()?.label || aiRuntime.provider?.label || "ValueSpark Mock";
+  return getSelectedProvider()?.label || "请选择供应商";
 }
 
 function currentModelLabel() {
-  return state.settings.model || aiRuntime.model || "ValueSpark Mock";
-}
-
-function providerConfigurationHint(provider) {
-  if (!provider) return "服务端代理连接后会显示可用供应商。";
-  if (provider.configured) return `${provider.label} 已在服务端完成配置。`;
-  if (hasSessionApiKey(provider.id)) return `${provider.label} 已使用当前浏览器会话中的 API Key。`;
-  if (provider.id === "ollama") return "配置 OLLAMA_BASE_URL 后可连接本地 Ollama。";
-  return `${provider.label} 当前使用演示回复；填写自己的 API Key 后即可启用真实模型。`;
-}
-
-function providerStatusLabel(provider) {
-  if (provider.configured) return "站点已配置";
-  if (hasSessionApiKey(provider.id)) return "已填 Key";
-  return provider.id === "ollama" ? "待配置" : "演示";
+  return state.settings.model || "请选择模型";
 }
 
 function hasSessionApiKey(providerId) {
   return Boolean(providerId && sessionKeys[providerId]);
+}
+
+function ensureAiReady() {
+  const provider = getSelectedProvider();
+  const ready = provider
+    && state.settings.model
+    && (provider.configured || hasSessionApiKey(provider.id));
+  if (ready) return true;
+
+  navigate("#/settings");
+  setTimeout(() => {
+    showToast("请依次选择供应商、模型并填写 API Key。");
+  }, 0);
+  return false;
 }
 
 function loadSessionKeys() {
@@ -1478,24 +1408,6 @@ function thinkingPathToList(value) {
     `Challenge: ${structure.challenge}`,
     `Emerging Insight: ${structure.emergingInsight}`
   ];
-}
-
-function localChatFallback(spark, content) {
-  return {
-    reply: mockAiResponse(spark, content),
-    followUpQuestions: [
-      "这个想法最需要在哪个具体场景里成立？",
-      "当前判断依赖的关键假设是什么？",
-      "什么小证据能让你决定继续或调整方向？"
-    ],
-    thinkingPath: normalizeThinkingStructure({
-      observation: "新的补充让原始想法拥有了更多背景。",
-      coreQuestion: "在一个具体场景里，这个想法最需要解决什么问题？",
-      keyAssumption: "存在一个真实且重复出现的需求。",
-      challenge: "当前材料仍需要更具体的人物、时刻和结果。",
-      emergingInsight: "先验证一个关键场景，可以降低继续推进的模糊度。"
-    })
-  };
 }
 
 function filteredSparks(search, filter) {

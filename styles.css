@@ -856,6 +856,24 @@ strong {
   background: var(--surface-muted);
 }
 
+.connection-ready {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 0 0;
+}
+
+.connection-ready span {
+  color: var(--success);
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.connection-ready strong {
+  font-size: 14px;
+}
+
 .settings-row {
   display: flex;
   align-items: center;
