@@ -1,5 +1,6 @@
 const STORAGE_KEY = "valuespark.state.v1";
 const SESSION_KEYS_STORAGE = "valuespark.session-keys.v1";
+const AUTH_STORAGE_KEY = "valuespark.auth.v1";
 
 const sampleSparks = [
   {
@@ -72,6 +73,18 @@ let aiRuntime = {
   providers: []
 };
 let sessionKeys = loadSessionKeys();
+let authConfig = {
+  enabled: false,
+  url: "",
+  publishableKey: "",
+  methods: { email: false, phone: false, social: [] }
+};
+let authSession = loadAuthSession();
+let accountKeys = {};
+let authPanelOpen = false;
+let authMode = "email";
+let phoneOtpSent = false;
+let authBusy = false;
 let pendingAction = null;
 let toastTimer = null;
 let captureOpen = true;
@@ -522,8 +535,8 @@ function renderSettings() {
   const selectedProviderId = state.settings.provider || "";
   const selectedProvider = getSelectedProvider();
   const models = selectedProvider?.models || [];
-  const supportsSessionKey = Boolean(selectedProviderId) && selectedProvider?.id !== "ollama";
-  const hasKey = supportsSessionKey && hasSessionApiKey(selectedProvider.id);
+  const supportsPersonalKey = Boolean(selectedProviderId && selectedProvider && selectedProvider.id !== "ollama");
+  const hasKey = supportsPersonalKey && hasStoredApiKey(selectedProvider.id);
   return `
     <main class="settings-page">
       <header class="settings-page-header">
@@ -531,30 +544,17 @@ function renderSettings() {
         <p>管理你的思考偏好、账户与使用体验</p>
       </header>
 
-      <section class="settings-section">
-        <p class="settings-section-title">账户</p>
-        <div class="original-setting-card account-card">
-          <div class="account-identity">
-            <span class="account-avatar">H</span>
-            <div>
-              <strong>Helen Zhu</strong>
-              <p>hezhu0564@gmail.com</p>
-            </div>
-          </div>
-          <button class="button" type="button">切换账户</button>
-        </div>
-        <div class="account-actions">
-          <button class="button" type="button">编辑资料</button>
-          <button class="button danger" type="button">退出登录</button>
-        </div>
-      </section>
+      ${renderAccountSettings()}
 
       <section class="settings-section">
         <p class="settings-section-title">AI 模型</p>
         <div class="original-setting-card ai-setting-card">
           <div class="setting-copy">
             <strong>选择供应商、模型并填写 API Key</strong>
-            <p>API Key 只保留在当前浏览器会话，并经由 ValueSpark 服务端代理用于模型请求。</p>
+            <p>${authSession?.user
+              ? "API Key 会加密保存到你的账户，并由 ValueSpark 服务端代理用于模型请求。"
+              : "登录后可把 API Key 加密保存到个人账户；当前也支持仅保留在本标签页。"
+            }</p>
           </div>
         <div class="model-picker-grid">
           <div class="field">
@@ -587,17 +587,17 @@ function renderSettings() {
         </div>
         <div class="api-key-panel">
           ${
-            supportsSessionKey
+            supportsPersonalKey
               ? `<div class="api-key-control">
                   <input
                     type="password"
                     data-session-api-key
                     aria-label="${escapeAttr(selectedProvider.label)} API Key"
-                    placeholder="${hasKey ? "当前会话已保存密钥，可输入新值替换" : "粘贴 API Key"}"
+                    placeholder="${apiKeyPlaceholder(selectedProvider.id)}"
                     autocomplete="off"
                     spellcheck="false"
                   />
-                  <button class="button primary" data-save-api-key>保存并启用</button>
+                  <button class="button primary" data-save-api-key>${authSession?.user ? "保存到账户并启用" : "本次使用"}</button>
                   ${hasKey ? `<button class="button" data-clear-api-key>清除</button>` : ""}
                 </div>`
               : `<p class="api-key-placeholder">${
@@ -606,7 +606,10 @@ function renderSettings() {
                     : "选择供应商后即可粘贴对应的 API Key。"
                 }</p>`
           }
-          <div class="api-key-privacy">服务器仅代理本次请求，不保存、返回或写入日志。</div>
+          <div class="api-key-privacy">${authSession?.user
+            ? "密钥经 AES-256-GCM 加密后保存；浏览器无法读取已保存的完整密钥。"
+            : "本次使用的密钥只保留在当前标签页，关闭标签页后由浏览器清除。"
+          }</div>
         </div>
         ${
           selectedProvider && (selectedProvider.configured || hasKey)
@@ -710,6 +713,143 @@ function renderSettings() {
         </div>
       </section>
     </main>
+  `;
+}
+
+function renderAccountSettings() {
+  const user = authSession?.user;
+  const accountLabel = user ? accountDisplayName(user) : "登录 ValueSpark";
+  const accountDetail = user
+    ? user.email || user.phone || "已连接个人账户"
+    : authConfig.enabled
+      ? "登录后可跨设备使用加密保存的 API Key"
+      : "账户服务需要在部署环境中完成配置";
+  return `
+    <section class="settings-section">
+      <p class="settings-section-title">账户</p>
+      <div class="original-setting-card account-card">
+        <div class="account-identity">
+          <span class="account-avatar">${escapeHtml(accountLabel.slice(0, 1).toUpperCase())}</span>
+          <div>
+            <strong>${escapeHtml(accountLabel)}</strong>
+            <p>${escapeHtml(accountDetail)}</p>
+          </div>
+        </div>
+        ${
+          user
+            ? `<button class="button" type="button" data-switch-account>切换账户</button>`
+            : `<button class="button" type="button" data-auth-open ${authConfig.enabled ? "" : "disabled"}>登录 / 注册</button>`
+        }
+      </div>
+      ${
+        user
+          ? `<div class="account-actions">
+              <button class="button" type="button" data-edit-profile>编辑资料</button>
+              <button class="button danger" type="button" data-sign-out>退出登录</button>
+            </div>`
+          : ""
+      }
+      ${authPanelOpen ? renderAuthPanel() : ""}
+    </section>
+  `;
+}
+
+function renderAuthPanel() {
+  if (!authConfig.enabled) return "";
+  if (authSession?.user && authMode === "profile") {
+    return `
+      <form class="original-setting-card auth-panel" data-profile-form>
+        <div class="auth-panel-head">
+          <div><strong>编辑资料</strong><p>这个名称会显示在你的账户卡片中。</p></div>
+          <button class="text-button" type="button" data-auth-close>关闭</button>
+        </div>
+        <label class="auth-field">
+          <span>显示名称</span>
+          <input name="name" value="${escapeAttr(accountDisplayName(authSession.user))}" maxlength="60" autocomplete="name" required />
+        </label>
+        <button class="button primary" type="submit" ${authBusy ? "disabled" : ""}>保存资料</button>
+      </form>
+    `;
+  }
+
+  const methods = authConfig.methods || {};
+  const availableModes = [
+    methods.email ? ["email", "邮箱"] : null,
+    methods.phone ? ["phone", "手机号"] : null
+  ].filter(Boolean);
+  if (!availableModes.some(([id]) => id === authMode)) {
+    authMode = availableModes[0]?.[0] || "social";
+  }
+  const socialProviders = methods.social || [];
+  return `
+    <div class="original-setting-card auth-panel">
+      <div class="auth-panel-head">
+        <div><strong>登录或创建账户</strong><p>登录会话由认证服务管理。</p></div>
+        <button class="text-button" type="button" data-auth-close>关闭</button>
+      </div>
+      ${
+        availableModes.length
+          ? `<div class="auth-tabs">
+              ${availableModes.map(([id, label]) =>
+                `<button class="${authMode === id ? "selected" : ""}" type="button" data-auth-mode="${id}">${label}</button>`
+              ).join("")}
+            </div>`
+          : ""
+      }
+      ${authMode === "email" && methods.email ? renderEmailAuthForm() : ""}
+      ${authMode === "phone" && methods.phone ? renderPhoneAuthForm() : ""}
+      ${
+        socialProviders.length
+          ? `<div class="social-auth">
+              <p><span>社交账户</span></p>
+              <div>
+                ${socialProviders.map((provider) =>
+                  `<button class="button" type="button" data-social-auth="${escapeAttr(provider.provider)}">${escapeHtml(provider.label)}</button>`
+                ).join("")}
+              </div>
+            </div>`
+          : ""
+      }
+    </div>
+  `;
+}
+
+function renderEmailAuthForm() {
+  return `
+    <form class="auth-form" data-email-auth>
+      <label class="auth-field">
+        <span>邮箱</span>
+        <input type="email" name="email" placeholder="name@example.com" autocomplete="email" required />
+      </label>
+      <label class="auth-field">
+        <span>密码</span>
+        <input type="password" name="password" minlength="8" autocomplete="current-password" required />
+      </label>
+      <div class="auth-form-actions">
+        <button class="button primary" type="submit" name="intent" value="signin" ${authBusy ? "disabled" : ""}>登录</button>
+        <button class="button" type="submit" name="intent" value="signup" ${authBusy ? "disabled" : ""}>注册</button>
+      </div>
+    </form>
+  `;
+}
+
+function renderPhoneAuthForm() {
+  return `
+    <form class="auth-form" data-phone-auth>
+      <label class="auth-field">
+        <span>手机号</span>
+        <input type="tel" name="phone" placeholder="+86 138 0000 0000" autocomplete="tel" required />
+      </label>
+      ${
+        phoneOtpSent
+          ? `<label class="auth-field">
+              <span>验证码</span>
+              <input name="token" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required />
+            </label>`
+          : ""
+      }
+      <button class="button primary" type="submit" ${authBusy ? "disabled" : ""}>${phoneOtpSent ? "验证并登录" : "发送验证码"}</button>
+    </form>
   `;
 }
 
@@ -1073,6 +1213,63 @@ function bindActions() {
     button.addEventListener("click", () => exportMarkdown(button.dataset.exportMarkdown));
   });
 
+  document.querySelector("[data-auth-open]")?.addEventListener("click", () => {
+    authPanelOpen = true;
+    authMode = authConfig.methods?.email ? "email" : authConfig.methods?.phone ? "phone" : "social";
+    render();
+  });
+
+  document.querySelector("[data-auth-close]")?.addEventListener("click", () => {
+    authPanelOpen = false;
+    phoneOtpSent = false;
+    render();
+  });
+
+  document.querySelectorAll("[data-auth-mode]").forEach((button) => {
+    button.addEventListener("click", () => {
+      authMode = button.dataset.authMode;
+      phoneOtpSent = false;
+      render();
+    });
+  });
+
+  document.querySelector("[data-email-auth]")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const intent = event.submitter?.value || "signin";
+    await submitEmailAuth(form.get("email"), form.get("password"), intent);
+  });
+
+  document.querySelector("[data-phone-auth]")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    await submitPhoneAuth(form.get("phone"), form.get("token"));
+  });
+
+  document.querySelectorAll("[data-social-auth]").forEach((button) => {
+    button.addEventListener("click", () => beginSocialAuth(button.dataset.socialAuth));
+  });
+
+  document.querySelector("[data-switch-account]")?.addEventListener("click", () => {
+    authPanelOpen = true;
+    authMode = authConfig.methods?.email ? "email" : authConfig.methods?.phone ? "phone" : "social";
+    render();
+  });
+
+  document.querySelector("[data-edit-profile]")?.addEventListener("click", () => {
+    authPanelOpen = true;
+    authMode = "profile";
+    render();
+  });
+
+  document.querySelector("[data-profile-form]")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    await updateProfile(String(form.get("name") || ""));
+  });
+
+  document.querySelector("[data-sign-out]")?.addEventListener("click", signOut);
+
   const aiProvider = document.querySelector("[data-ai-provider]");
   if (aiProvider) {
     aiProvider.addEventListener("change", () => {
@@ -1097,29 +1294,37 @@ function bindActions() {
 
   const saveApiKey = document.querySelector("[data-save-api-key]");
   if (saveApiKey) {
-    saveApiKey.addEventListener("click", () => {
+    saveApiKey.addEventListener("click", async () => {
       const provider = getSelectedProvider();
       const apiKey = document.querySelector("[data-session-api-key]")?.value.trim() || "";
       if (!provider || !apiKey) {
         showToast("请先填写 API Key。");
         return;
       }
-      sessionKeys[provider.id] = apiKey;
-      saveSessionKeys();
-      render();
-      showToast(`${provider.label} API Key 已保存，可以开始使用。`);
+      if (authSession?.user) {
+        await saveKeyToAccount(provider, apiKey);
+      } else {
+        sessionKeys[provider.id] = apiKey;
+        saveSessionKeys();
+        render();
+        showToast(`${provider.label} API Key 已在本标签页启用。`);
+      }
     });
   }
 
   const clearApiKey = document.querySelector("[data-clear-api-key]");
   if (clearApiKey) {
-    clearApiKey.addEventListener("click", () => {
+    clearApiKey.addEventListener("click", async () => {
       const provider = getSelectedProvider();
       if (!provider) return;
-      delete sessionKeys[provider.id];
-      saveSessionKeys();
-      render();
-      showToast(`${provider.label} 会话密钥已清除。`);
+      if (accountKeys[provider.id]?.saved && authSession?.user) {
+        await deleteKeyFromAccount(provider);
+      } else {
+        delete sessionKeys[provider.id];
+        saveSessionKeys();
+        render();
+        showToast(`${provider.label} 本次使用的密钥已清除。`);
+      }
     });
   }
 
@@ -1529,11 +1734,336 @@ function normalizeInsight(insight) {
   };
 }
 
+async function initializeAccount() {
+  try {
+    const response = await fetch("/api/auth-config", { headers: { Accept: "application/json" } });
+    if (response.ok) authConfig = await response.json();
+  } catch {
+    authConfig.enabled = false;
+  }
+
+  captureOAuthSession();
+  if (authConfig.enabled && authSession?.refresh_token) {
+    try {
+      await refreshAuthSession();
+      await loadAccountKeys();
+    } catch {
+      clearAuthSession();
+    }
+  }
+  render();
+}
+
+function captureOAuthSession() {
+  const fragment = window.location.hash.slice(1);
+  if (!fragment.includes("access_token=")) return;
+  const params = new URLSearchParams(fragment);
+  const accessToken = params.get("access_token");
+  const refreshToken = params.get("refresh_token");
+  if (accessToken && refreshToken) {
+    setAuthSession({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      expires_in: Number(params.get("expires_in") || 3600),
+      token_type: params.get("token_type") || "bearer"
+    });
+    authPanelOpen = false;
+  }
+  window.history.replaceState(null, "", `${window.location.pathname}#/settings`);
+}
+
+async function submitEmailAuth(emailValue, passwordValue, intent) {
+  const email = String(emailValue || "").trim();
+  const password = String(passwordValue || "");
+  if (!email || password.length < 8) {
+    showToast("请填写有效邮箱和至少 8 位密码。");
+    return;
+  }
+  authBusy = true;
+  render();
+  try {
+    const path = intent === "signup" ? "/auth/v1/signup" : "/auth/v1/token?grant_type=password";
+    const result = await authRequest(path, {
+      method: "POST",
+      body: JSON.stringify({
+        email,
+        password,
+        ...(intent === "signup" ? { data: { full_name: email.split("@")[0] } } : {})
+      })
+    });
+    if (result.access_token) {
+      setAuthSession(result);
+      await hydrateAuthenticatedAccount();
+      showToast(intent === "signup" ? "账户已创建并登录。" : "登录成功。");
+    } else {
+      showToast("确认邮件已发送，请完成邮箱验证后登录。");
+    }
+  } catch (error) {
+    showToast(authErrorMessage(error));
+  } finally {
+    authBusy = false;
+    render();
+  }
+}
+
+async function submitPhoneAuth(phoneValue, tokenValue) {
+  const phone = String(phoneValue || "").replace(/\s+/g, "");
+  const token = String(tokenValue || "").trim();
+  if (!/^\+[1-9]\d{7,14}$/.test(phone)) {
+    showToast("手机号需要包含国家代码，例如 +8613800000000。");
+    return;
+  }
+  authBusy = true;
+  render();
+  try {
+    if (!phoneOtpSent) {
+      await authRequest("/auth/v1/otp", {
+        method: "POST",
+        body: JSON.stringify({ phone, create_user: true })
+      });
+      phoneOtpSent = true;
+      showToast("验证码已发送。");
+    } else {
+      if (!/^\d{6}$/.test(token)) throw new Error("请输入 6 位验证码。");
+      const result = await authRequest("/auth/v1/verify", {
+        method: "POST",
+        body: JSON.stringify({ type: "sms", phone, token })
+      });
+      setAuthSession(result);
+      phoneOtpSent = false;
+      await hydrateAuthenticatedAccount();
+      showToast("手机号登录成功。");
+    }
+  } catch (error) {
+    showToast(authErrorMessage(error));
+  } finally {
+    authBusy = false;
+    render();
+  }
+}
+
+function beginSocialAuth(provider) {
+  if (!authConfig.enabled || !provider) return;
+  const redirectTo = `${window.location.origin}${window.location.pathname}`;
+  const url = new URL(`${authConfig.url}/auth/v1/authorize`);
+  url.searchParams.set("provider", provider);
+  url.searchParams.set("redirect_to", redirectTo);
+  window.location.assign(url.toString());
+}
+
+async function updateProfile(nameValue) {
+  const name = nameValue.trim().slice(0, 60);
+  if (!name) {
+    showToast("请填写显示名称。");
+    return;
+  }
+  authBusy = true;
+  render();
+  try {
+    const result = await authRequest("/auth/v1/user", {
+      method: "PUT",
+      headers: await authHeaders(),
+      body: JSON.stringify({ data: { full_name: name } })
+    });
+    authSession.user = result;
+    persistAuthSession();
+    authPanelOpen = false;
+    showToast("账户资料已保存。");
+  } catch (error) {
+    showToast(authErrorMessage(error));
+  } finally {
+    authBusy = false;
+    render();
+  }
+}
+
+async function signOut() {
+  const accessToken = authSession?.access_token;
+  try {
+    if (accessToken && authConfig.enabled) {
+      await authRequest("/auth/v1/logout?scope=local", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+    }
+  } catch {
+    // The local session still needs to be cleared when the remote session has expired.
+  }
+  clearAuthSession();
+  authPanelOpen = true;
+  authMode = authConfig.methods?.email ? "email" : authConfig.methods?.phone ? "phone" : "social";
+  render();
+  showToast("已退出登录。");
+}
+
+async function hydrateAuthenticatedAccount() {
+  const user = await authRequest("/auth/v1/user", {
+    headers: await authHeaders()
+  });
+  authSession.user = user;
+  persistAuthSession();
+  authPanelOpen = false;
+  await loadAccountKeys();
+}
+
+async function loadAccountKeys() {
+  if (!authSession?.access_token) {
+    accountKeys = {};
+    return;
+  }
+  const response = await fetch("/api/account-key", {
+    headers: await authHeaders({ Accept: "application/json" })
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || "账户密钥状态读取失败。");
+  accountKeys = result.keys || {};
+  if (result.user && authSession) {
+    authSession.user = { ...authSession.user, ...result.user };
+    persistAuthSession();
+  }
+}
+
+async function saveKeyToAccount(provider, apiKey) {
+  try {
+    const response = await fetch("/api/account-key", {
+      method: "PUT",
+      headers: await authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ provider: provider.id, apiKey })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || "API Key 保存失败。");
+    accountKeys[provider.id] = { saved: true, hint: result.hint || "" };
+    delete sessionKeys[provider.id];
+    saveSessionKeys();
+    render();
+    showToast(`${provider.label} API Key 已加密保存到账户。`);
+  } catch (error) {
+    showToast(error.message || "API Key 保存失败。");
+  }
+}
+
+async function deleteKeyFromAccount(provider) {
+  try {
+    const response = await fetch("/api/account-key", {
+      method: "DELETE",
+      headers: await authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ provider: provider.id })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || "API Key 清除失败。");
+    delete accountKeys[provider.id];
+    render();
+    showToast(`${provider.label} 账户密钥已清除。`);
+  } catch (error) {
+    showToast(error.message || "API Key 清除失败。");
+  }
+}
+
+async function authHeaders(extra = {}) {
+  await ensureFreshAuthSession();
+  return {
+    ...extra,
+    Authorization: `Bearer ${authSession?.access_token || ""}`
+  };
+}
+
+async function ensureFreshAuthSession() {
+  if (!authSession?.refresh_token) throw new Error("请先登录账户。");
+  if (Number(authSession.expires_at || 0) > Date.now() / 1000 + 60) return;
+  await refreshAuthSession();
+}
+
+async function refreshAuthSession() {
+  if (!authSession?.refresh_token || !authConfig.enabled) return;
+  const result = await authRequest("/auth/v1/token?grant_type=refresh_token", {
+    method: "POST",
+    body: JSON.stringify({ refresh_token: authSession.refresh_token })
+  });
+  setAuthSession(result);
+  const user = await authRequest("/auth/v1/user", {
+    headers: { Authorization: `Bearer ${authSession.access_token}` }
+  });
+  authSession.user = user;
+  persistAuthSession();
+}
+
+async function authRequest(path, options = {}) {
+  if (!authConfig.enabled) throw new Error("账户服务尚未配置。");
+  const response = await fetch(`${authConfig.url}${path}`, {
+    ...options,
+    headers: {
+      apikey: authConfig.publishableKey,
+      "Content-Type": "application/json",
+      ...(options.headers || {})
+    }
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(result.msg || result.message || result.error_description || "认证请求失败。");
+    error.status = response.status;
+    throw error;
+  }
+  return result;
+}
+
+function setAuthSession(value) {
+  if (!value?.access_token || !value?.refresh_token) return;
+  authSession = {
+    access_token: value.access_token,
+    refresh_token: value.refresh_token,
+    token_type: value.token_type || "bearer",
+    expires_at: value.expires_at || Math.floor(Date.now() / 1000) + Number(value.expires_in || 3600),
+    user: value.user || authSession?.user || null
+  };
+  persistAuthSession();
+}
+
+function loadAuthSession() {
+  try {
+    const value = JSON.parse(localStorage.getItem(AUTH_STORAGE_KEY) || "null");
+    return value?.access_token && value?.refresh_token ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistAuthSession() {
+  if (authSession) localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authSession));
+}
+
+function clearAuthSession() {
+  authSession = null;
+  accountKeys = {};
+  localStorage.removeItem(AUTH_STORAGE_KEY);
+}
+
+function accountDisplayName(user) {
+  return user?.user_metadata?.full_name
+    || user?.user_metadata?.name
+    || user?.name
+    || user?.email?.split("@")[0]
+    || user?.phone
+    || "ValueSpark 用户";
+}
+
+function authErrorMessage(error) {
+  const message = String(error?.message || "");
+  if (/invalid login credentials/i.test(message)) return "邮箱或密码有误。";
+  if (/user already registered/i.test(message)) return "这个邮箱已经注册，请直接登录。";
+  if (/email rate limit/i.test(message)) return "邮件发送较频繁，请稍后再试。";
+  if (/phone provider/i.test(message)) return "手机短信服务尚未完成配置。";
+  return message || "认证服务暂时不可用。";
+}
+
 async function requestAi(payload) {
   const apiKey = sessionKeys[payload.provider] || "";
+  const headers = { "Content-Type": "application/json" };
+  if (authSession?.access_token) {
+    Object.assign(headers, await authHeaders());
+  }
   const response = await fetch("/api/ai", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ ...payload, apiKey })
   });
   const result = await response.json().catch(() => ({}));
@@ -1573,7 +2103,7 @@ async function loadAiStatus(showResult = false) {
 function runtimeModeLabel() {
   if (aiRuntime.mode === "checking") return "检测中";
   const provider = getSelectedProvider();
-  if (provider) return provider.configured || hasSessionApiKey(provider.id) ? "已连接" : "待填写 Key";
+  if (provider) return provider.configured || hasStoredApiKey(provider.id) ? "已连接" : "待填写 Key";
   return "待配置";
 }
 
@@ -1604,11 +2134,24 @@ function hasSessionApiKey(providerId) {
   return Boolean(providerId && sessionKeys[providerId]);
 }
 
+function hasStoredApiKey(providerId) {
+  return hasSessionApiKey(providerId) || Boolean(accountKeys[providerId]?.saved);
+}
+
+function apiKeyPlaceholder(providerId) {
+  if (accountKeys[providerId]?.saved) {
+    const hint = accountKeys[providerId].hint;
+    return hint ? `账户已保存 ····${hint}，输入新值可替换` : "账户已保存密钥，输入新值可替换";
+  }
+  if (hasSessionApiKey(providerId)) return "本标签页已启用密钥，输入新值可替换";
+  return "粘贴 API Key";
+}
+
 function ensureAiReady() {
   const provider = getSelectedProvider();
   const ready = provider
     && state.settings.model
-    && (provider.configured || hasSessionApiKey(provider.id));
+    && (provider.configured || hasStoredApiKey(provider.id));
   if (ready) return true;
 
   navigate("#/settings");
@@ -1738,6 +2281,7 @@ function escapeAttr(value) {
   return escapeHtml(value).replace(/`/g, "&#096;");
 }
 
+captureOAuthSession();
 window.addEventListener("hashchange", render);
 if (!window.location.hash) {
   window.location.hash = "#/";
@@ -1745,3 +2289,4 @@ if (!window.location.hash) {
   render();
 }
 loadAiStatus();
+initializeAccount();
