@@ -1545,12 +1545,15 @@ strong {
 }
 
 .thread-page {
-  min-height: 100dvh;
+  height: 100dvh;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: 60px minmax(0, 1fr);
   background: var(--bg);
 }
 
 .thread-topline {
-  height: 60px;
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1558,6 +1561,10 @@ strong {
   padding: 0 32px;
   border-bottom: 1px solid var(--line);
   background: rgba(255, 253, 248, 0.92);
+}
+
+.thread-title-row {
+  flex: 1 1 auto;
 }
 
 .thread-title-row,
@@ -1579,6 +1586,43 @@ strong {
   white-space: nowrap;
 }
 
+.thread-nav {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.thread-nav button {
+  min-height: 34px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.thread-nav button:hover,
+.thread-nav button:focus-visible {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.thread-nav button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.thread-nav button.active {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  font-weight: 680;
+}
+
 .thread-settings {
   flex-shrink: 0;
   color: var(--muted);
@@ -1598,13 +1642,15 @@ strong {
 }
 
 .thinking-workspace {
-  height: calc(100dvh - 60px);
+  min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 1.34fr) minmax(420px, 0.96fr);
 }
 
 .conversation-panel {
+  min-height: 0;
   min-width: 0;
+  overflow: hidden;
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
   padding: 24px 24px 18px 36px;
@@ -1620,6 +1666,8 @@ strong {
 
 .thread-dialogue {
   min-height: 0;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   padding: 0 4px 22px 0;
 }
 
@@ -1697,7 +1745,9 @@ strong {
 }
 
 .reasoning-panel {
+  min-height: 0;
   min-width: 0;
+  overflow: hidden;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto auto;
   padding: 26px 24px 22px;
@@ -1721,6 +1771,8 @@ strong {
 .reasoning-cards {
   min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   display: grid;
   align-content: start;
   gap: 13px;
@@ -2227,8 +2279,13 @@ strong {
     grid-template-columns: minmax(0, 1fr) minmax(340px, 0.72fr);
   }
 
+  .thread-title-row h1,
   .thread-settings span {
     display: none;
+  }
+
+  .thread-nav {
+    margin-left: auto;
   }
 }
 
@@ -2363,11 +2420,17 @@ strong {
   }
 
   .thread-topline {
-    height: auto;
     min-height: 58px;
     align-items: flex-start;
     flex-direction: column;
     padding: 12px 16px;
+  }
+
+  .thread-page {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+    display: block;
   }
 
   .thread-title-row {
@@ -2378,6 +2441,22 @@ strong {
     max-width: 100%;
   }
 
+  .thread-nav {
+    width: 100%;
+    margin-left: 0;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .thread-nav button {
+    flex: 0 0 auto;
+  }
+
+  .thread-settings {
+    width: 100%;
+    justify-content: space-between;
+  }
+
   .thinking-workspace {
     height: auto;
     min-height: calc(100dvh - 58px);
@@ -2386,6 +2465,7 @@ strong {
 
   .conversation-panel {
     min-height: 62dvh;
+    overflow: visible;
     padding: 18px 16px;
     border-right: 0;
     border-bottom: 1px solid var(--line);
@@ -2393,6 +2473,7 @@ strong {
 
   .reasoning-panel {
     min-height: 520px;
+    overflow: visible;
     padding: 20px 16px;
   }
 

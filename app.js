@@ -183,6 +183,12 @@ function render() {
 
   bindActions();
   if (current.name === "landing") initRotatingText();
+  if (current.name === "thread") {
+    requestAnimationFrame(() => {
+      const dialogue = document.querySelector("[data-dialogue]");
+      if (dialogue) dialogue.scrollTop = dialogue.scrollHeight;
+    });
+  }
 }
 
 function renderTopbar(active) {
@@ -404,6 +410,14 @@ function renderThread(id) {
           <h1>${escapeHtml(spark.title)}</h1>
           <span class="status">${escapeHtml(spark.status)}</span>
         </div>
+        <nav class="thread-nav" aria-label="思考页导航">
+          <button data-route="#/">首页</button>
+          <button data-route="#/library">图书馆</button>
+          <button class="active" data-route="#/space" aria-current="page">思考空间</button>
+          <button data-route="#/approach">思考方式</button>
+          <button data-route="#/cases">案例</button>
+          <button data-route="#/about">关于</button>
+        </nav>
         <div class="thread-settings">
           <span class="runtime-pill">${runtimeModeLabel()}</span>
           <span>${escapeHtml(currentProviderLabel())} · ${escapeHtml(currentModelLabel())}</span>
@@ -413,7 +427,7 @@ function renderThread(id) {
 
       <section class="thinking-workspace">
         <section class="conversation-panel">
-          <div class="dialogue thread-dialogue" data-dialogue>
+          <div class="dialogue thread-dialogue" data-dialogue tabindex="0" aria-label="对话记录，可独立滚动">
             <div class="message user original-message">${escapeHtml(spark.content)}</div>
             ${thread.messages.map(renderMessage).join("")}
           </div>
@@ -450,7 +464,7 @@ function renderThread(id) {
             </div>
             <button class="button" data-export-markdown="${spark.id}">导出</button>
           </div>
-          <div class="reasoning-cards">
+          <div class="reasoning-cards" tabindex="0" aria-label="思考路径，可独立滚动">
             ${renderReasoningCards(spark, thread)}
             ${thread.insight ? renderInsight(thread.insight) : ""}
           </div>
