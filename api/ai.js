@@ -1,3 +1,5 @@
+import { resolveAccountApiKey } from "./_lib/account.js";
+
 const MAX_BODY_BYTES = 64 * 1024;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_REQUESTS = 20;
@@ -160,7 +162,8 @@ export default async function handler(req, res) {
 
   try {
     const body = sanitizeRequest(await readJsonBody(req));
-    const selection = resolveSelection(body.provider, body.model, body.apiKey);
+    const accountApiKey = body.apiKey ? "" : await resolveAccountApiKey(req, body.provider);
+    const selection = resolveSelection(body.provider, body.model, body.apiKey || accountApiKey);
     if (!selection.configured) {
       const data = body.action === "chat" ? buildMockChat(body) : buildMockInsight(body);
       return sendJson(res, 200, {
