@@ -813,28 +813,74 @@ function renderCases() {
 
 function renderAbout() {
   return `
-    <main class="content-page">
-      <section class="content-hero">
+    <main class="content-page about-page">
+      <section class="content-hero about-hero">
         <h1>关于 ValueSpark</h1>
-        <p>真正重要的想法，值得被认真、缓慢、结构化地对待。</p>
+        <p>我们相信，真正重要的想法，值得被认真、缓慢、结构化地对待。</p>
       </section>
+
       <section class="about-copy">
-        <p class="section-kicker">为什么要做 ValueSpark</p>
-        <p>现在的 AI 工具越来越快，也越来越会给出看起来合理的答案。但很少有人真正陪你把一个模糊、混乱、带着焦虑的想法，一点一点拆开、审视、重组。</p>
-        <p>ValueSpark 为这个空白而生。它是一个愿意陪你一起慢下来的思考伙伴，把思考过程摊开看。</p>
-        <div class="about-grid">
-          <div><h3>思考需要外部结构</h3><p>把想法结构化地写出来、画出来，是对抗内耗很有效的办法。</p></div>
-          <div><h3>慢思考是一种能力</h3><p>愿意慢下来的人，能看到别人看不到的联系和机会。</p></div>
-          <div><h3>AI 应该放大思考</h3><p>我们希望 AI 帮你把自己的思考过程看得更清楚。</p></div>
-          <div><h3>洞见需要被打磨</h3><p>真正有价值的想法很少一次成型，它需要挑战、拆解和重新组合。</p></div>
-        </div>
-        <p class="section-kicker">适合谁</p>
-        <ul class="plain-list">
-          <li>经常需要处理复杂、模糊问题的独立思考者</li>
-          <li>厌倦快餐式 AI 回答，想把想法想透的人</li>
-          <li>希望把自己的思考过程沉淀下来的人</li>
-          <li>愿意为了更好的洞见付出一点耐心的人</li>
-        </ul>
+        <section class="about-section">
+          <p class="section-kicker">为什么要做 ValueSpark</p>
+          <div class="about-prose">
+            <p>现在的 AI 工具越来越快，也越来越会“讨好”用户。它们能瞬间给你一个看起来合理的答案，但很少有人真正陪你把一个模糊、混乱、甚至带着焦虑的想法，一点一点拆开、审视、重组。</p>
+            <p>我在做产品和思考个人方向时，经常会遇到那种“脑子里有很多东西，但怎么也理不清”的状态。和 ChatGPT 聊几句虽然能得到一些启发，但总感觉缺少了某种“重量”和“陪伴”。</p>
+            <p>ValueSpark 就是为了填补这个空白而生的。它不是一个更聪明的聊天机器人，而是一个愿意陪你一起慢下来、把思考过程摊开看的伙伴。</p>
+          </div>
+        </section>
+
+        <section class="about-section">
+          <p class="section-kicker">我们的信念</p>
+          <div class="about-grid">
+            <div>
+              <h3>思考需要外部结构</h3>
+              <p>大脑在处理复杂问题时很容易陷入循环和盲区。把想法结构化地写出来、画出来，是对抗这种局限最有效的办法之一。</p>
+            </div>
+            <div>
+              <h3>慢思考是一种能力</h3>
+              <p>在快节奏的时代，愿意且能够慢下来的人，反而能看到别人看不到的联系和机会。</p>
+            </div>
+            <div>
+              <h3>AI 应该是思考的放大器，而不是替代品</h3>
+              <p>我们不想让 AI 替你做决定，而是想让它帮你把自己的思考过程看得更清楚。</p>
+            </div>
+            <div>
+              <h3>洞见需要被反复打磨</h3>
+              <p>真正有价值的想法很少能一次成型。它需要被挑战、被拆解、被重新组合。</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="about-section">
+          <p class="section-kicker">适合谁</p>
+          <div class="about-prose">
+            <p>ValueSpark 不是为所有人准备的。它特别适合以下几类人：</p>
+            <ul class="plain-list">
+              <li>经常需要处理复杂、模糊问题的独立思考者（开发者、产品人、研究者、创业者）</li>
+              <li>厌倦了快餐式 AI 回答，想要真正把想法想透的人</li>
+              <li>希望把自己的思考过程沉淀下来，而不是每次都从零开始的人</li>
+              <li>愿意为了更好的洞见，付出一点“慢”的耐心的人</li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="about-section">
+          <p class="section-kicker">关于我</p>
+          <div class="about-prose">
+            <p>我是 Helen（@hezhu0564），一个长期关注 AI 工具和深度思考方式的独立开发者。</p>
+            <p>在过去几年里，我自己一直在和“想法太多但理不清”的状态斗争，也试过几乎所有主流 AI 工具。我发现，真正能帮到我的工具，不是那些能最快给出答案的，而是能陪我把思考过程慢慢展开的。</p>
+            <p>ValueSpark 就是我自己真正想要用的工具，也是我希望能和更多同类的人一起用好的东西。</p>
+          </div>
+        </section>
+
+        <section class="about-contact">
+          <p class="section-kicker">联系与交流</p>
+          <p>如果你对 ValueSpark 有任何想法、建议，或者只是想聊聊深度思考这件事，欢迎随时联系我。</p>
+          <div>
+            <a href="https://x.com/hezhu0564?s=20" target="_blank" rel="noopener noreferrer">X / Twitter @hezhu0564</a>
+            <a href="https://t.me/crypto0xhelen" target="_blank" rel="noopener noreferrer">Telegram @crypto0xhelen</a>
+          </div>
+        </section>
       </section>
     </main>
   `;
