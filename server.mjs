@@ -2,6 +2,8 @@ import { createServer } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import aiHandler, { runtimeStatus } from "./api/ai.js";
+import accountKeyHandler from "./api/account-key.js";
+import authConfigHandler from "./api/auth-config.js";
 
 const port = Number(process.env.PORT || 4173);
 const root = process.cwd();
@@ -17,6 +19,14 @@ createServer(async (req, res) => {
   const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
   if (url.pathname === "/api/ai") {
     await aiHandler(req, res);
+    return;
+  }
+  if (url.pathname === "/api/account-key") {
+    await accountKeyHandler(req, res);
+    return;
+  }
+  if (url.pathname === "/api/auth-config") {
+    await authConfigHandler(req, res);
     return;
   }
 
