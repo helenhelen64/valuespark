@@ -77,6 +77,8 @@ let toastTimer = null;
 let captureOpen = true;
 let onboardingStep = 0;
 let onboardingDraft = "";
+let rotatingTextTimer = null;
+let rotatingTextIndex = 0;
 
 function loadState() {
   const raw = localStorage.getItem(STORAGE_KEY);
@@ -133,45 +135,57 @@ function route() {
     return { name: "thread", id: path.replace("#/thread/", "") };
   }
   if (path === "#/library") return { name: "library" };
-  if (path === "#/space") return { name: "space" };
+  if (path === "#/space") {
+    const latestSpark = state.sparks[0];
+    return latestSpark ? { name: "thread", id: latestSpark.id } : { name: "library" };
+  }
   if (path === "#/approach") return { name: "approach" };
   if (path === "#/cases") return { name: "cases" };
   if (path === "#/about") return { name: "about" };
   if (path === "#/settings") return { name: "settings" };
-  return { name: "library" };
+  if (path === "#/onboarding") return { name: "onboarding" };
+  return { name: "landing" };
 }
 
 function render() {
+  window.clearInterval(rotatingTextTimer);
+  rotatingTextTimer = null;
   const current = route();
   const app = document.querySelector("#app");
 
   app.innerHTML = `
     <div class="app-shell">
-      ${current.name === "thread" ? "" : renderTopbar(current.name)}
+      ${current.name === "thread" || current.name === "onboarding" ? "" : renderTopbar(current.name)}
+      ${current.name === "landing" ? renderLanding() : ""}
       ${current.name === "library" ? renderLibrary() : ""}
       ${current.name === "thread" ? renderThread(current.id) : ""}
-      ${current.name === "space" ? renderLibrary() : ""}
       ${current.name === "approach" ? renderApproach() : ""}
       ${current.name === "cases" ? renderCases() : ""}
       ${current.name === "about" ? renderAbout() : ""}
       ${current.name === "settings" ? renderSettings() : ""}
-      ${!state.onboardingComplete && current.name !== "thread" ? renderOnboarding() : ""}
+      ${current.name === "onboarding" ? renderOnboarding() : ""}
       <div id="toast-root"></div>
     </div>
   `;
 
   bindActions();
+  if (current.name === "landing") initRotatingText();
 }
 
 function renderTopbar(active) {
   const links = [
+    ["landing", "#/", "首页"],
     ["library", "#/library", "图书馆"],
-    ["settings", "#/settings", "AI 设置"]
+    ["space", "#/space", "思考空间"],
+    ["approach", "#/approach", "思考方式"],
+    ["cases", "#/cases", "案例"],
+    ["about", "#/about", "关于"],
+    ["settings", "#/settings", "设置"]
   ];
 
   return `
     <header class="topbar">
-      <button class="brand button" data-route="#/library" aria-label="返回 ValueSpark 图书馆">
+      <button class="brand button" data-route="#/" aria-label="返回 ValueSpark 首页">
         <img class="brand-logo" src="./assets/logo/value-spark-logo.png" alt="" />
         <span class="brand-name">ValueSpark</span>
       </button>
@@ -179,7 +193,7 @@ function renderTopbar(active) {
         ${links
           .map(([key, path, label]) => `<button class="${active === key ? "active" : ""}" data-route="${path}">${label}</button>`)
           .join("")}
-        <button class="nav-cta" data-new-spark>新建火花</button>
+        <button class="nav-cta" data-new-spark>开始思考</button>
       </nav>
     </header>
   `;
@@ -187,63 +201,60 @@ function renderTopbar(active) {
 
 function renderLanding() {
   return `
-    <main>
-      <section class="home-hero">
-        <img class="home-logo" src="./assets/logo/value-spark-logo.png" alt="ValueSpark" />
-        <p class="eyebrow">PRIVATE THINKING PARTNER</p>
-        <h1>把模糊想法，推成清晰洞见。</h1>
-        <p>ValueSpark 陪你把想法慢慢拆开、审视、挑战，再沉淀成可以继续使用的判断。</p>
-        <button class="button primary" data-start>开始记录你的第一个想法</button>
+    <main class="landing-page">
+      <section class="landing-hero">
+        <img class="landing-hero-logo" src="./assets/logo/value-spark-logo.png" alt="ValueSpark logo" />
+        <h1>ValueSpark</h1>
+        <div class="landing-subtitle">
+          <p>让灵感真正 <span data-rotating-text>被认真捕捉</span></p>
+        </div>
+        <form class="landing-prompt" data-landing-form>
+          <input
+            type="text"
+            data-landing-input
+            aria-label="写下一个灵感"
+            placeholder="写下一个灵感，我帮你慢慢想清楚"
+            autocomplete="off"
+          />
+          <button type="submit" aria-label="开始思考">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M14 5l7 7-7 7" />
+            </svg>
+          </button>
+        </form>
+        <div class="landing-prompts" aria-label="灵感提示">
+          <button type="button" data-landing-preset="捕捉灵感">捕捉灵感</button>
+          <button type="button" data-landing-preset="结构化思考">结构化思考</button>
+          <button type="button" data-landing-preset="生成洞见">生成洞见</button>
+        </div>
       </section>
 
-      <section class="container home-split">
+      <section class="landing-features">
+        <article>
+          <span>CAPTURE</span>
+          <h2>捕捉灵感</h2>
+          <p>记录那些一闪而过但有价值的想法。</p>
+        </article>
+        <article>
+          <span>STRUCTURE</span>
+          <h2>结构化思考</h2>
+          <p>把混乱念头拆成清晰的问题、路径和判断。</p>
+        </article>
+        <article>
+          <span>INSIGHT</span>
+          <h2>生成洞见</h2>
+          <p>帮助你看见想法背后更深层的联系。</p>
+        </article>
+      </section>
+
+      <footer class="landing-footer">
         <div>
-          <p class="section-kicker">核心信念</p>
-          <p>好的想法很少一次成型。它需要被拆解、被挑战、被反复审视。</p>
-          <p>ValueSpark 把这个过程做成可见的结构，让你在混乱里保留真正有价值的线索。</p>
+          <a href="https://x.com/hezhu0564?s=20" target="_blank" rel="noopener noreferrer">X</a>
+          <a href="https://t.me/crypto0xhelen" target="_blank" rel="noopener noreferrer">Telegram</a>
+          <button type="button" data-route="#/about">About</button>
         </div>
-        <div class="belief-list">
-          <p>好的想法值得被认真对待</p>
-          <p>推理过程比结论更重要</p>
-          <p>慢思考是一种能力</p>
-          <p>洞见需要被反复打磨</p>
-        </div>
-      </section>
-
-      <section class="container process-strip">
-        ${[
-          ["01", "捕捉", "把任何模糊的想法写下来，先保留它的原始状态。"],
-          ["02", "结构化", "把想法拆成事实、假设、路径和风险。"],
-          ["03", "审视与挑战", "温和地提出反问，让盲区浮出水面。"],
-          ["04", "结晶", "把思考凝结成可回顾、可行动的洞见。"]
-        ]
-          .map(
-            ([num, title, body]) => `
-              <article class="process-card">
-                <span>${num}</span>
-                <h3>${title}</h3>
-                <p>${body}</p>
-              </article>
-            `
-          )
-          .join("")}
-      </section>
-
-      <section class="container home-preview">
-        <div class="library-preview">
-          <p class="section-kicker">图书馆</p>
-          <h2>所有想法都有一个可以回来的地方。</h2>
-          <button class="button primary" data-route="#/library">进入图书馆</button>
-        </div>
-        <div class="thread-preview-card">
-          <div class="chat-bubble dark">我有一个创业想法，但现在很模糊，不知道从哪里下手。</div>
-          <div class="chat-bubble light">我们先把它慢慢拆开。当前最清晰的部分是什么？</div>
-          <div class="reasoning-mini">
-            <span>Observation</span>
-            <p>这个想法里真正需要澄清的是用户场景和关键假设。</p>
-          </div>
-        </div>
-      </section>
+        <p>© VALUE SPARK — THINK DEEPER</p>
+      </footer>
     </main>
   `;
 }
@@ -514,15 +525,37 @@ function renderSettings() {
   const supportsSessionKey = Boolean(selectedProviderId) && selectedProvider?.id !== "ollama";
   const hasKey = supportsSessionKey && hasSessionApiKey(selectedProvider.id);
   return `
-    <main class="container page">
-      <header class="page-header">
-        <div>
-          <h1>设置</h1>
-          <p>依次选择 AI 供应商、模型，并粘贴该供应商提供的 API Key。</p>
-        </div>
+    <main class="settings-page">
+      <header class="settings-page-header">
+        <h1>设置</h1>
+        <p>管理你的思考偏好、账户与使用体验</p>
       </header>
 
-      <section class="settings-panel">
+      <section class="settings-section">
+        <p class="settings-section-title">账户</p>
+        <div class="original-setting-card account-card">
+          <div class="account-identity">
+            <span class="account-avatar">H</span>
+            <div>
+              <strong>Helen Zhu</strong>
+              <p>hezhu0564@gmail.com</p>
+            </div>
+          </div>
+          <button class="button" type="button">切换账户</button>
+        </div>
+        <div class="account-actions">
+          <button class="button" type="button">编辑资料</button>
+          <button class="button danger" type="button">退出登录</button>
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <p class="settings-section-title">AI 模型</p>
+        <div class="original-setting-card ai-setting-card">
+          <div class="setting-copy">
+            <strong>选择供应商、模型并填写 API Key</strong>
+            <p>API Key 只保留在当前浏览器会话，并经由 ValueSpark 服务端代理用于模型请求。</p>
+          </div>
         <div class="model-picker-grid">
           <div class="field">
             <label for="ai-provider">AI 供应商</label>
@@ -553,18 +586,6 @@ function renderSettings() {
           </div>
         </div>
         <div class="api-key-panel">
-          <div>
-            <strong>API Key</strong>
-            <p>
-              ${
-                !selectedProviderId
-                  ? "完成供应商选择后，在这里粘贴对应的 API Key。"
-                  : selectedProvider?.id === "ollama"
-                    ? "Ollama 通过服务端地址连接，本地地址需要由站点管理员配置。"
-                    : `${escapeHtml(selectedProvider?.label || "该供应商")} 密钥只保留在当前浏览器会话，关闭标签页后由浏览器清除。`
-              }
-            </p>
-          </div>
           ${
             supportsSessionKey
               ? `<div class="api-key-control">
@@ -576,23 +597,128 @@ function renderSettings() {
                     autocomplete="off"
                     spellcheck="false"
                   />
-                  <button class="button primary" data-save-api-key>保存并使用</button>
+                  <button class="button primary" data-save-api-key>保存并启用</button>
                   ${hasKey ? `<button class="button" data-clear-api-key>清除</button>` : ""}
                 </div>`
-              : ""
+              : `<p class="api-key-placeholder">${
+                  selectedProvider?.id === "ollama"
+                    ? "Ollama 使用站点管理员配置的本地服务地址。"
+                    : "选择供应商后即可粘贴对应的 API Key。"
+                }</p>`
           }
-          <div class="api-key-privacy">密钥经 HTTPS 发送至 ValueSpark 服务端代理，只用于本次模型请求；服务器不保存、不返回、不写入日志。</div>
+          <div class="api-key-privacy">服务器仅代理本次请求，不保存、返回或写入日志。</div>
         </div>
         ${
           selectedProvider && (selectedProvider.configured || hasKey)
             ? `<div class="connection-ready">
-                <span>已准备好</span>
+                <span>已启用</span>
                 <strong>${escapeHtml(selectedProvider.label)} · ${escapeHtml(currentModelLabel())}</strong>
               </div>`
             : ""
         }
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <p class="settings-section-title">思考偏好</p>
+        <div class="original-setting-card preference-card">
+          <div>
+            <strong>默认思考深度</strong>
+            <div class="depth-options">
+              <button type="button">浅</button>
+              <button class="selected" type="button">中</button>
+              <button type="button">深</button>
+            </div>
+            <p class="setting-hint">影响 AI 默认的思考强度与追问频率</p>
+          </div>
+
+          <div>
+            <strong>AI 回应风格</strong>
+            <div class="response-styles">
+              <button class="selected" type="button"><strong>苏格拉底式</strong><span>通过提问帮助你自己发现答案</span></button>
+              <button type="button"><strong>结构化</strong><span>直接给出清晰的框架与节点</span></button>
+              <button type="button"><strong>温和挑战</strong><span>指出潜在盲点但语气柔和</span></button>
+              <button type="button"><strong>直接型</strong><span>高效给出结论与建议</span></button>
+            </div>
+          </div>
+
+          <div class="setting-switch-row">
+            <div>
+              <strong>允许 AI 主动提出反问</strong>
+              <p>在你长时间沉默时主动帮助推进思考</p>
+            </div>
+            ${renderSettingSwitch("允许 AI 主动提出反问")}
+          </div>
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <p class="settings-section-title">专注与通知</p>
+        <div class="original-setting-card stacked-settings">
+          <div class="setting-switch-row">
+            <div><strong>思考时自动勿扰</strong><p>进入深度思考时屏蔽所有通知</p></div>
+            ${renderSettingSwitch("思考时自动勿扰")}
+          </div>
+          <div class="setting-switch-row">
+            <div><strong>洞见生成提醒</strong><p>当 AI 认为有重要洞见时通知你</p></div>
+            ${renderSettingSwitch("洞见生成提醒")}
+          </div>
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <p class="settings-section-title">语言</p>
+        <div class="original-setting-card setting-switch-row">
+          <div><strong>界面语言</strong><p>语言设置会影响 AI 的表达风格</p></div>
+          <select class="original-select" aria-label="界面语言">
+            <option>中文（简体）</option>
+            <option>English</option>
+          </select>
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <p class="settings-section-title">本月思考容量</p>
+        <div class="original-setting-card capacity-card">
+          <div class="capacity-head">
+            <div>
+              <p>已完成高质量思考</p>
+              <strong>37 <span>条洞见</span></strong>
+            </div>
+            <button class="button accent-outline" type="button">解锁更深层思考</button>
+          </div>
+          <p>本月已进行 <strong>184 次</strong> 深度对话 · 累计结构化 <strong>1,276</strong> 个思考节点</p>
+          <p>相当于帮你节省了约 <strong>47 小时</strong> 的混乱思考时间</p>
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <p class="settings-section-title">数据与记忆</p>
+        <div class="original-setting-card stacked-settings">
+          <div class="setting-switch-row">
+            <div><strong>记忆保留策略</strong><p>AI 可参考的历史思考范围</p></div>
+            <select class="original-select" aria-label="记忆保留策略">
+              <option>最近 30 天</option>
+              <option>最近 90 天</option>
+              <option>全部历史</option>
+            </select>
+          </div>
+          <div class="setting-switch-row export-setting">
+            <div><strong>导出我的思考档案</strong><p>支持 Markdown / PDF / 结构化 JSON</p></div>
+            <button class="text-button export-link" type="button">导出</button>
+          </div>
+        </div>
       </section>
     </main>
+  `;
+}
+
+function renderSettingSwitch(label) {
+  return `
+    <label class="setting-toggle">
+      <input type="checkbox" checked aria-label="${escapeAttr(label)}" />
+      <span></span>
+    </label>
   `;
 }
 
@@ -792,6 +918,23 @@ function bindActions() {
     start.addEventListener("click", () => navigate("#/library"));
   }
 
+  const landingForm = document.querySelector("[data-landing-form]");
+  if (landingForm) {
+    landingForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      createSparkFromLanding();
+    });
+  }
+
+  document.querySelectorAll("[data-landing-preset]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const input = document.querySelector("[data-landing-input]");
+      if (!input) return;
+      input.value = button.dataset.landingPreset;
+      input.focus();
+    });
+  });
+
   document.querySelectorAll("[data-focus-create]").forEach((focusCreate) => {
     focusCreate.addEventListener("click", () => {
       captureOpen = !captureOpen;
@@ -805,6 +948,10 @@ function bindActions() {
   const newSpark = document.querySelector("[data-new-spark]");
   if (newSpark) {
     newSpark.addEventListener("click", () => {
+      if (route().name === "landing") {
+        document.querySelector("[data-landing-input]")?.focus();
+        return;
+      }
       captureOpen = true;
       if (route().name !== "library") {
         navigate("#/library");
@@ -814,6 +961,20 @@ function bindActions() {
       document.querySelector("[data-create-content]")?.focus();
     });
   }
+
+  document.querySelectorAll(".depth-options button").forEach((button) => {
+    button.addEventListener("click", () => {
+      document.querySelectorAll(".depth-options button").forEach((item) => item.classList.remove("selected"));
+      button.classList.add("selected");
+    });
+  });
+
+  document.querySelectorAll(".response-styles button").forEach((button) => {
+    button.addEventListener("click", () => {
+      document.querySelectorAll(".response-styles button").forEach((item) => item.classList.remove("selected"));
+      button.classList.add("selected");
+    });
+  });
 
   const create = document.querySelector("[data-create-spark]");
   if (create) {
@@ -954,6 +1115,41 @@ function bindActions() {
       render();
     });
   }
+}
+
+function initRotatingText() {
+  const phrases = ["被认真捕捉", "形成结构", "成长为洞见", "变得清晰"];
+  const element = document.querySelector("[data-rotating-text]");
+  if (!element) return;
+
+  rotatingTextIndex = 0;
+  element.textContent = phrases[rotatingTextIndex];
+  rotatingTextTimer = window.setInterval(() => {
+    element.classList.add("is-changing");
+    window.setTimeout(() => {
+      rotatingTextIndex = (rotatingTextIndex + 1) % phrases.length;
+      element.textContent = phrases[rotatingTextIndex];
+      element.classList.remove("is-changing");
+    }, 520);
+  }, 2200);
+}
+
+function createSparkFromLanding() {
+  const input = document.querySelector("[data-landing-input]");
+  const content = input?.value.trim() || "";
+  if (!content) {
+    input?.focus();
+    return;
+  }
+
+  const spark = addSpark({
+    title: makeSparkTitle(content),
+    content,
+    tags: ["灵感"],
+    status: "思考中"
+  });
+  saveState();
+  openThread(spark.id);
 }
 
 function createSpark() {
