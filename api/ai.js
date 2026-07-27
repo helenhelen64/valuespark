@@ -160,7 +160,7 @@ export default async function handler(req, res) {
 
   try {
     const body = sanitizeRequest(await readJsonBody(req));
-    const selection = resolveSelection(body.provider, body.model);
+    const selection = resolveSelection(body.provider, body.model, body.apiKey);
     if (!selection.configured) {
       const data = body.action === "chat" ? buildMockChat(body) : buildMockInsight(body);
       return sendJson(res, 200, {
@@ -181,7 +181,11 @@ export default async function handler(req, res) {
   } catch (error) {
     const status = Number.isInteger(error.status) ? error.status : 500;
     const message = status >= 500 ? "AI 服务暂时不可用，请稍后再试。" : error.message;
-    console.error("[ValueSpark AI]", error);
+    console.error("[ValueSpark AI]", {
+      status,
+      name: error?.name || "Error",
+      message: error?.message || "unknown"
+    });
     return sendJson(res, status, { error: message });
   }
 }
@@ -239,11 +243,12 @@ export function sanitizeRequest(input) {
     messages,
     userMessage: cleanText(input.userMessage, 4_000),
     provider: cleanText(input.provider, 32) || "auto",
-    model: cleanText(input.model, 160)
+    model: cleanText(input.model, 160),
+    apiKey: cleanSecret(input.apiKey, 1_024)
   };
 }
 
-export function resolveSelection(requestedProvider = "auto", requestedModel = "") {
+export function resolveSelection(requestedProvider = "auto", requestedModel = "", sessionApiKey = "") {
   const catalog = getProviderCatalog();
   const preferred = requestedProvider === "auto"
     ? cleanText(process.env.AI_PROVIDER, 32)
@@ -257,27 +262,28 @@ export function resolveSelection(requestedProvider = "auto", requestedModel = ""
   return {
     id: provider.id,
     label: provider.label,
-    configured: provider.configured,
+    configured: provider.configured || Boolean(sessionApiKey),
+    apiKey: sessionApiKey || process.env[PROVIDERS.find((item) => item.id === provider.id)?.envKey],
     model,
     publicProvider: { id: provider.id, label: provider.label }
   };
 }
 
 export async function requestProvider(body, selection) {
-  if (selection.id === "openai") return requestOpenAI(body, selection.model);
-  if (selection.id === "anthropic") return requestAnthropic(body, selection.model);
-  if (selection.id === "gemini") return requestGemini(body, selection.model);
+  if (selection.id === "openai") return requestOpenAI(body, selection);
+  if (selection.id === "anthropic") return requestAnthropic(body, selection);
+  if (selection.id === "gemini") return requestGemini(body, selection);
   if (selection.id === "ollama") return requestOllama(body, selection.model);
   return requestOpenAICompatible(body, selection);
 }
 
-async function requestOpenAI(body, model) {
+async function requestOpenAI(body, selection) {
   const schema = schemaFor(body.action);
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
-    headers: jsonHeaders(process.env.OPENAI_API_KEY),
+    headers: jsonHeaders(selection.apiKey),
     body: JSON.stringify({
-      model,
+      model: selection.model,
       reasoning: { effort: body.action === "chat" ? "medium" : "high" },
       input: buildModelInput(body),
       text: {
@@ -301,17 +307,14 @@ async function requestOpenAICompatible(body, selection) {
   const configs = {
     deepseek: {
       url: "https://api.deepseek.com/chat/completions",
-      key: process.env.DEEPSEEK_API_KEY,
       extras: { thinking: { type: "disabled" } }
     },
     kimi: {
       url: "https://api.moonshot.ai/v1/chat/completions",
-      key: process.env.MOONSHOT_API_KEY,
       extras: { thinking: { type: "disabled" } }
     },
     openrouter: {
       url: "https://openrouter.ai/api/v1/chat/completions",
-      key: process.env.OPENROUTER_API_KEY,
       headers: {
         "HTTP-Referer": process.env.APP_URL || "https://valuespark.local",
         "X-Title": "ValueSpark"
@@ -322,7 +325,7 @@ async function requestOpenAICompatible(body, selection) {
   const config = configs[selection.id];
   const response = await fetch(config.url, {
     method: "POST",
-    headers: { ...jsonHeaders(config.key), ...config.headers },
+    headers: { ...jsonHeaders(selection.apiKey), ...config.headers },
     body: JSON.stringify({
       model: selection.model,
       messages: buildJsonMessages(body),
@@ -338,17 +341,17 @@ async function requestOpenAICompatible(body, selection) {
   return parseJsonText(payload?.choices?.[0]?.message?.content);
 }
 
-async function requestAnthropic(body, model) {
+async function requestAnthropic(body, selection) {
   const input = buildModelInput(body);
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-api-key": process.env.ANTHROPIC_API_KEY,
+      "x-api-key": selection.apiKey,
       "anthropic-version": "2023-06-01"
     },
     body: JSON.stringify({
-      model,
+      model: selection.model,
       max_tokens: body.action === "chat" ? 2200 : 3200,
       system: `${input[0].content}\n${jsonContract(body.action)}`,
       messages: [{ role: "user", content: input[1].content }]
@@ -360,9 +363,9 @@ async function requestAnthropic(body, model) {
   return parseJsonText(text);
 }
 
-async function requestGemini(body, model) {
+async function requestGemini(body, selection) {
   const input = buildModelInput(body);
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`;
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(selection.model)}:generateContent?key=${encodeURIComponent(selection.apiKey)}`;
   const response = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -558,6 +561,12 @@ async function readJsonBody(req) {
 
 function cleanText(value, maxLength) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+}
+
+function cleanSecret(value, maxLength) {
+  return typeof value === "string"
+    ? value.trim().replace(/[\u0000-\u001f\u007f]/g, "").slice(0, maxLength)
+    : "";
 }
 
 function summarize(value) {

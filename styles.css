@@ -807,6 +807,55 @@ strong {
   border-bottom: 1px solid var(--line);
 }
 
+.api-key-panel {
+  display: grid;
+  gap: 16px;
+  padding: 22px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.api-key-panel strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 16px;
+}
+
+.api-key-panel p,
+.api-key-privacy {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.api-key-control {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto auto;
+  gap: 10px;
+}
+
+.api-key-control input {
+  min-width: 0;
+  height: 44px;
+  padding: 0 13px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  outline: 0;
+  background: var(--surface-strong);
+  color: var(--text);
+}
+
+.api-key-control input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(196, 122, 44, 0.16);
+}
+
+.api-key-privacy {
+  padding: 11px 13px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+}
+
 .settings-row {
   display: flex;
   align-items: center;
@@ -1532,6 +1581,10 @@ strong {
   }
 
   .model-picker-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .api-key-control {
     grid-template-columns: 1fr;
   }
 

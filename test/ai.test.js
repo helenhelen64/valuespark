@@ -47,9 +47,23 @@ test("选择未配置的 Kimi 会保留模型并进入演示模式", () => {
 });
 
 test("请求清洗会限制历史并规范角色", () => {
-  const clean = sanitizeRequest({ ...request, messages: Array.from({ length: 20 }, (_, index) => ({ role: index % 2 ? "ai" : "user", content: `消息 ${index}` })) });
+  const clean = sanitizeRequest({
+    ...request,
+    apiKey: "  sk-session-test  ",
+    messages: Array.from({ length: 20 }, (_, index) => ({ role: index % 2 ? "ai" : "user", content: `消息 ${index}` }))
+  });
   assert.equal(clean.messages.length, 16);
   assert.equal(clean.messages.at(-1).role, "assistant");
+  assert.equal(clean.apiKey, "sk-session-test");
+});
+
+test("当前会话 API Key 可以启用未配置的供应商", () => {
+  const previous = process.env.MOONSHOT_API_KEY;
+  delete process.env.MOONSHOT_API_KEY;
+  const selection = resolveSelection("kimi", "kimi-k2.5", "session-kimi-key");
+  assert.equal(selection.configured, true);
+  assert.equal(selection.apiKey, "session-kimi-key");
+  if (previous) process.env.MOONSHOT_API_KEY = previous;
 });
 
 test("mock 对话包含回复、追问和思考路径", () => {
@@ -97,6 +111,7 @@ test("Kimi 适配器使用 Moonshot 端点与所选模型", async () => {
     const selection = resolveSelection("kimi", "kimi-k2.6");
     const data = await requestProvider(sanitizeRequest({ ...request, provider: "kimi", model: "kimi-k2.6" }), selection);
     assert.equal(captured.url, "https://api.moonshot.ai/v1/chat/completions");
+    assert.equal(captured.options.headers.Authorization, "Bearer test-key");
     assert.equal(captured.body.model, "kimi-k2.6");
     assert.deepEqual(captured.body.thinking, { type: "disabled" });
     assert.equal(captured.body.max_completion_tokens, 2200);

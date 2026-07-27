@@ -1,4 +1,5 @@
 const STORAGE_KEY = "valuespark.state.v1";
+const SESSION_KEYS_STORAGE = "valuespark.session-keys.v1";
 
 const sampleSparks = [
   {
@@ -69,6 +70,7 @@ let aiRuntime = {
   model: "正在检测",
   providers: []
 };
+let sessionKeys = loadSessionKeys();
 let pendingAction = null;
 let toastTimer = null;
 let captureOpen = true;
@@ -506,12 +508,14 @@ function renderSettings() {
   const selectedProviderId = state.settings.provider || "auto";
   const selectedProvider = getSelectedProvider();
   const models = selectedProvider?.models || [];
+  const supportsSessionKey = selectedProviderId !== "auto" && selectedProvider?.id !== "ollama";
+  const hasKey = supportsSessionKey && hasSessionApiKey(selectedProvider.id);
   return `
     <main class="container page">
       <header class="page-header">
         <div>
           <h1>设置</h1>
-          <p>选择你想使用的 AI 供应商和模型。密钥始终由服务端环境变量管理。</p>
+          <p>选择 AI 供应商和模型。你可以使用站点服务，也可以在当前会话中填写自己的 API Key。</p>
         </div>
       </header>
 
@@ -524,7 +528,7 @@ function renderSettings() {
               ${aiRuntime.providers
                 .map(
                   (provider) =>
-                    `<option value="${escapeAttr(provider.id)}" ${selectedProviderId === provider.id ? "selected" : ""}>${escapeHtml(provider.label)} · ${provider.configured ? "已配置" : "演示"}</option>`
+                    `<option value="${escapeAttr(provider.id)}" ${selectedProviderId === provider.id ? "selected" : ""}>${escapeHtml(provider.label)} · ${providerStatusLabel(provider)}</option>`
                 )
                 .join("")}
             </select>
@@ -540,6 +544,37 @@ function renderSettings() {
                 .join("")}
             </select>
           </div>
+        </div>
+        <div class="api-key-panel">
+          <div>
+            <strong>使用自己的 API Key</strong>
+            <p>
+              ${
+                selectedProviderId === "auto"
+                  ? "先选择一个具体的 AI 供应商，再填写对应密钥。"
+                  : selectedProvider?.id === "ollama"
+                    ? "Ollama 通过服务端地址连接，本地地址需要由站点管理员配置。"
+                    : `${escapeHtml(selectedProvider?.label || "该供应商")} 密钥只保留在当前浏览器会话，关闭标签页后由浏览器清除。`
+              }
+            </p>
+          </div>
+          ${
+            supportsSessionKey
+              ? `<div class="api-key-control">
+                  <input
+                    type="password"
+                    data-session-api-key
+                    aria-label="${escapeAttr(selectedProvider.label)} API Key"
+                    placeholder="${hasKey ? "当前会话已保存密钥，可输入新值替换" : "粘贴 API Key"}"
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                  <button class="button primary" data-save-api-key>保存并启用</button>
+                  ${hasKey ? `<button class="button" data-clear-api-key>清除</button>` : ""}
+                </div>`
+              : ""
+          }
+          <div class="api-key-privacy">密钥经 HTTPS 发送至 ValueSpark 服务端代理，只用于本次模型请求；服务器不保存、不返回、不写入日志。</div>
         </div>
         <div class="settings-row">
           <div>
@@ -861,6 +896,34 @@ function bindActions() {
       saveState();
       render();
       showToast("模型选择已保存。");
+    });
+  }
+
+  const saveApiKey = document.querySelector("[data-save-api-key]");
+  if (saveApiKey) {
+    saveApiKey.addEventListener("click", () => {
+      const provider = getSelectedProvider();
+      const apiKey = document.querySelector("[data-session-api-key]")?.value.trim() || "";
+      if (!provider || !apiKey) {
+        showToast("请先填写 API Key。");
+        return;
+      }
+      sessionKeys[provider.id] = apiKey;
+      saveSessionKeys();
+      render();
+      showToast(`${provider.label} 已切换为真实 AI，会在首次请求时验证密钥。`);
+    });
+  }
+
+  const clearApiKey = document.querySelector("[data-clear-api-key]");
+  if (clearApiKey) {
+    clearApiKey.addEventListener("click", () => {
+      const provider = getSelectedProvider();
+      if (!provider) return;
+      delete sessionKeys[provider.id];
+      saveSessionKeys();
+      render();
+      showToast(`${provider.label} 会话密钥已清除。`);
     });
   }
 
@@ -1289,10 +1352,11 @@ function normalizeInsight(insight) {
 }
 
 async function requestAi(payload) {
+  const apiKey = sessionKeys[payload.provider] || "";
   const response = await fetch("/api/ai", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
+    body: JSON.stringify({ ...payload, apiKey })
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok || !result.data) {
@@ -1331,7 +1395,7 @@ async function loadAiStatus(showResult = false) {
 function runtimeModeLabel() {
   if (aiRuntime.mode === "checking") return "检测中";
   const provider = getSelectedProvider();
-  if (provider) return provider.configured ? "真实 AI" : "演示模式";
+  if (provider) return provider.configured || hasSessionApiKey(provider.id) ? "真实 AI" : "演示模式";
   return aiRuntime.mode === "live" ? "真实 AI" : "演示模式";
 }
 
@@ -1367,8 +1431,32 @@ function currentModelLabel() {
 function providerConfigurationHint(provider) {
   if (!provider) return "服务端代理连接后会显示可用供应商。";
   if (provider.configured) return `${provider.label} 已在服务端完成配置。`;
+  if (hasSessionApiKey(provider.id)) return `${provider.label} 已使用当前浏览器会话中的 API Key。`;
   if (provider.id === "ollama") return "配置 OLLAMA_BASE_URL 后可连接本地 Ollama。";
-  return `${provider.label} 当前使用演示回复；在服务端配置对应 API Key 后自动启用。`;
+  return `${provider.label} 当前使用演示回复；填写自己的 API Key 后即可启用真实模型。`;
+}
+
+function providerStatusLabel(provider) {
+  if (provider.configured) return "站点已配置";
+  if (hasSessionApiKey(provider.id)) return "已填 Key";
+  return provider.id === "ollama" ? "待配置" : "演示";
+}
+
+function hasSessionApiKey(providerId) {
+  return Boolean(providerId && sessionKeys[providerId]);
+}
+
+function loadSessionKeys() {
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(SESSION_KEYS_STORAGE) || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveSessionKeys() {
+  sessionStorage.setItem(SESSION_KEYS_STORAGE, JSON.stringify(sessionKeys));
 }
 
 function normalizeThinkingStructure(value) {
