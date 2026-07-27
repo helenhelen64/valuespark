@@ -1743,6 +1743,9 @@ async function initializeAccount() {
   }
 
   captureOAuthSession();
+  if (!authConfig.enabled && authSession) {
+    clearAuthSession();
+  }
   if (authConfig.enabled && authSession?.refresh_token) {
     try {
       await refreshAuthSession();
