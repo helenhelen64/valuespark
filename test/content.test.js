@@ -4,6 +4,8 @@ import test from "node:test";
 
 const appSource = await readFile(new URL("../app.js", import.meta.url), "utf8");
 const stylesSource = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+const logoSource = await readFile(new URL("../assets/logo/value-spark-logo.png", import.meta.url));
+const wordmarkSource = await readFile(new URL("../assets/logo/value-spark-wordmark.png", import.meta.url));
 
 test("思考方式保留原始完整内容", () => {
   assert.match(appSource, /不是更快，而是更深。/);
@@ -36,4 +38,10 @@ test("桌面端对话与思考路径使用独立滚动区域", () => {
   assert.match(stylesSource, /\.conversation-panel\s*\{[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s);
   assert.match(stylesSource, /\.thread-dialogue\s*\{[^}]*overscroll-behavior:\s*contain;/s);
   assert.match(stylesSource, /\.reasoning-cards\s*\{[^}]*overflow:\s*auto;[^}]*overscroll-behavior:\s*contain;/s);
+});
+
+test("全站品牌图片统一使用带透明通道的同一 Logo", () => {
+  assert.deepEqual(logoSource, wordmarkSource);
+  assert.equal(logoSource.subarray(1, 4).toString("ascii"), "PNG");
+  assert.equal(logoSource[25], 6);
 });
