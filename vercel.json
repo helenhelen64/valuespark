@@ -5,6 +5,12 @@
   "functions": {
     "api/ai.js": {
       "maxDuration": 60
+    },
+    "api/account-key.js": {
+      "maxDuration": 10
+    },
+    "api/auth-config.js": {
+      "maxDuration": 10
     }
   }
 }
