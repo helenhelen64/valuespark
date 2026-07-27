@@ -1811,25 +1811,110 @@ strong {
   line-height: 1.85;
 }
 
-.about-copy > p {
-  margin: 0 0 20px;
+.about-page .about-hero {
+  width: min(820px, calc(100% - 48px));
+  padding: 64px 0 60px;
+}
+
+.about-page .about-hero h1 {
+  font-size: 48px;
+  letter-spacing: -1.5px;
+}
+
+.about-page .about-hero p {
+  max-width: 560px;
+  font-size: 20px;
+  line-height: 1.7;
+}
+
+.about-page .about-copy {
+  width: min(820px, calc(100% - 48px));
+  color: #3f3630;
+  font-size: 15.5px;
+  line-height: 1.85;
+}
+
+.about-section {
+  margin-bottom: 64px;
+}
+
+.about-section .section-kicker,
+.about-contact .section-kicker {
+  margin-bottom: 16px;
+}
+
+.about-prose {
+  display: grid;
+  gap: 24px;
+}
+
+.about-prose p {
+  margin: 0;
 }
 
 .about-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 28px 54px;
-  margin: 44px 0;
+  gap: 32px 40px;
+  margin: 0;
 }
 
 .about-grid h3 {
-  margin: 0 0 10px;
-  font-size: 17px;
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
 }
 
 .about-grid p {
   margin: 0;
-  line-height: 1.72;
+  color: var(--text-soft);
+  font-size: 15px;
+  line-height: 1.78;
+}
+
+.about-prose .plain-list {
+  display: grid;
+  gap: 8px;
+  margin: -8px 0 0;
+  padding: 0 0 0 4px;
+  list-style: none;
+  color: #3f3630;
+}
+
+.about-prose .plain-list li {
+  display: flex;
+  gap: 12px;
+}
+
+.about-prose .plain-list li::before {
+  content: "•";
+}
+
+.about-contact {
+  padding-top: 40px;
+  border-top: 1px solid rgba(212, 201, 184, 0.6);
+  text-align: center;
+}
+
+.about-contact > p:not(.section-kicker) {
+  margin: 0 0 24px;
+  color: var(--muted);
+}
+
+.about-contact > div {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px 32px;
+  font-size: 14px;
+}
+
+.about-contact a {
+  transition: color 160ms ease;
+}
+
+.about-contact a:hover {
+  color: var(--accent);
 }
 
 .empty {
@@ -2096,6 +2181,26 @@ strong {
   .about-grid {
     grid-template-columns: 1fr;
     gap: 24px;
+  }
+
+  .about-page .about-hero {
+    padding: 46px 0 44px;
+  }
+
+  .about-page .about-hero h1 {
+    font-size: 38px;
+  }
+
+  .about-page .about-hero p {
+    font-size: 17px;
+  }
+
+  .about-section {
+    margin-bottom: 48px;
+  }
+
+  .about-contact > div {
+    flex-direction: column;
   }
 
   .process-card,
