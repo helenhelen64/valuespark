@@ -4,8 +4,12 @@ import test from "node:test";
 
 const appSource = await readFile(new URL("../app.js", import.meta.url), "utf8");
 const stylesSource = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+const indexSource = await readFile(new URL("../index.html", import.meta.url), "utf8");
 const logoSource = await readFile(new URL("../assets/logo/value-spark-logo.png", import.meta.url));
 const wordmarkSource = await readFile(new URL("../assets/logo/value-spark-wordmark.png", import.meta.url));
+const favicon32Source = await readFile(new URL("../assets/logo/value-spark-favicon-32.png", import.meta.url));
+const favicon96Source = await readFile(new URL("../assets/logo/value-spark-favicon-96.png", import.meta.url));
+const appleTouchIconSource = await readFile(new URL("../assets/logo/value-spark-apple-touch-icon.png", import.meta.url));
 
 test("思考方式保留原始完整内容", () => {
   assert.match(appSource, /不是更快，而是更深。/);
@@ -44,4 +48,15 @@ test("全站品牌图片统一使用带透明通道的同一 Logo", () => {
   assert.deepEqual(logoSource, wordmarkSource);
   assert.equal(logoSource.subarray(1, 4).toString("ascii"), "PNG");
   assert.equal(logoSource[25], 6);
+});
+
+test("标签页使用紧凑的专用 favicon 资源", () => {
+  assert.match(indexSource, /value-spark-favicon-32\.png/);
+  assert.match(indexSource, /value-spark-favicon-96\.png/);
+  assert.match(indexSource, /value-spark-apple-touch-icon\.png/);
+
+  const dimensions = (source) => [source.readUInt32BE(16), source.readUInt32BE(20), source[25]];
+  assert.deepEqual(dimensions(favicon32Source), [32, 32, 6]);
+  assert.deepEqual(dimensions(favicon96Source), [96, 96, 6]);
+  assert.deepEqual(dimensions(appleTouchIconSource), [180, 180, 6]);
 });
